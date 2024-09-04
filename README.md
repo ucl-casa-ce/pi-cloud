@@ -39,7 +39,7 @@ Software Installation: Prepare your preferred SD card image (e.g., Raspbian Book
 - Configure Ansible inventory file to list the Raspberry Pi nodes.
 - Run the Ansible playbooks to automate software installation and configuration across all nodes.
 
-**Custom Scripts:* Use provided bash scripts for basic tasks or develop your own scripts for additional management functionalities.
+**Custom Scripts:** Use provided bash scripts for basic tasks or develop your own scripts for additional management functionalities.
 
 ## Contributing
 We welcome contributions to this repository! This can include:
