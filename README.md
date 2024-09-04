@@ -35,7 +35,7 @@ Software Installation: Prepare your preferred SD card image (e.g., Raspbian Book
 
 **Ansible Configuration:**
 - Install Ansible on a control machine.
-   - ``` brew install ansible && brew install ansible-link```    
+   - ``` brew install ansible && brew install ansible-link && brew install hudochenkov/sshpass/sshpass```    
 - Configure Ansible inventory file to list the Raspberry Pi nodes.
 - Run the Ansible playbooks to automate software installation and configuration across all nodes.
 
