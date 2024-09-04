@@ -21,7 +21,8 @@ This repository contains the following resources to help you set up and manage y
 
 ## Prerequisites:
 
-Familiarity with Raspberry Pi and Linux administration.An SSH client for connecting to the Raspberry Pi nodes.
+- Familiarity with Raspberry Pi and Linux administration.
+- An SSH client for connecting to the Raspberry Pi nodes.
 
 ## Deployment Steps
 
@@ -34,6 +35,7 @@ Software Installation: Prepare your preferred SD card image (e.g., Raspbian Book
 
 **Ansible Configuration:**
 - Install Ansible on a control machine.
+   - ``` brew install ansible && brew install ansible-link```    
 - Configure Ansible inventory file to list the Raspberry Pi nodes.
 - Run the Ansible playbooks to automate software installation and configuration across all nodes.
 
