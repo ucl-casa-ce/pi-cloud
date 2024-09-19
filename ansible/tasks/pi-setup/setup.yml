@@ -35,9 +35,9 @@
           - screen
           - ufw
 
-    - name: Enable Byobu at Login (as user pi)
-      become: true
-      ansible.builtin.shell: "byobu-enable"
+    # - name: Enable Byobu at Login (as user pi)
+    #   become: true
+    #   ansible.builtin.shell: "byobu-enable"
 
     - name: Rename hostname
       shell: 'echo {{ inventory_hostname }} > /etc/hostname'
@@ -112,7 +112,7 @@
       become: true
       lineinfile:
         path: /etc/sudoers
-        line: "ce-admin ALL=(ALL) NOPASSWD:ALL"
+        line: "picloud-admin ALL=(ALL) NOPASSWD:ALL"
         validate: "visudo -cf %s"
         state: present
 
