@@ -1,0 +1,124 @@
+---
+- name: Set up PiCloud Default Settings.
+  hosts: picloud
+  gather_facts: true
+  become: true
+
+  vars_files:
+    - ../../vars/picloud.yml
+
+  # vars:
+  #   timezone: "Europe/London"
+  #   locale: "en_GB.UTF-8"
+  #   admin_password: ""
+
+  tasks:
+    - name: Update apt-get repo and cache
+      become: true
+      ansible.builtin.apt:
+        update_cache=yes cache_valid_time=3600
+
+    - name: Upgrade all apt packages
+      become: true
+      ansible.builtin.apt:
+        upgrade: dist
+
+    - name: Install packages
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - git
+          - ca-certificates
+          - curl
+          - byobu
+          - nano
+          - screen
+          - ufw
+
+    - name: Enable Byobu at Login (as user pi)
+      become: true
+      ansible.builtin.shell: "byobu-enable"
+
+    - name: Rename hostname
+      shell: 'echo {{ inventory_hostname }} > /etc/hostname'
+      args:
+        creates: /etc/hostname
+
+    - name: Rename Hostname in Config
+      ansible.builtin.shell: "raspi-config nonint do_hostname {{ inventory_hostname }}"
+
+    - name: Set Locale
+      ansible.builtin.shell: "raspi-config nonint do_change_locale {{ locale }}"
+
+    - name: Set Timezone
+      ansible.builtin.shell: "raspi-config nonint do_change_timezone {{ timezone }}"
+
+    # - name: Setup wifi
+    #   copy:
+    #     src: wpa_supplicant.conf
+    #     dest: /etc/wpa_supplicant/wpa_supplicant.conf
+
+    - name: Enable I2C
+      ansible.builtin.shell: "raspi-config nonint do_i2c 0"
+
+    - name: Enable SPI
+      ansible.builtin.shell: "raspi-config nonint do_spi 0"
+
+    - name: Enable Camera
+      ansible.builtin.shell: "raspi-config nonint do_camera 0"
+
+    - name: Enable VNC
+      ansible.builtin.shell: "raspi-config nonint do_vnc 0"
+
+    - name: Enable OneWire
+      ansible.builtin.shell: "raspi-config nonint do_onewire 0"
+
+    - name: Enable Remote GPIO
+      ansible.builtin.shell: "raspi-config nonint do_rgpio 0"
+
+    - name: Crontab - setup update and upgrade
+      become: true
+      ansible.builtin.cron:
+        name: "Update and upgrade"
+        minute: "0"
+        hour: "5"
+        job: "apt update -q -y && apt dist-upgrade -q -y"
+
+    - name: Removing Raspberry Pi OS Default Folder Structure
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /home/pi/Bookshelf
+        - /home/pi/Documents
+        - /home/pi/Desktop
+        - /home/pi/Downloads
+        - /home/pi/Pictures
+        - /home/pi/Public
+        - /home/pi/Templates
+        - /home/pi/Videos
+        - /home/pi/Music
+
+    - name: Create new admin user
+      become: true
+      user:
+        name: picloud-admin
+        password: "{{ admin_password | password_hash('sha512') }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+
+    - name: Add admin user to sudoers file
+      become: true
+      lineinfile:
+        path: /etc/sudoers
+        line: "ce-admin ALL=(ALL) NOPASSWD:ALL"
+        validate: "visudo -cf %s"
+        state: present
+
+    - name: Add Neofetch to .bashrc
+      ansible.builtin.blockinfile:
+        path: /home/picloud-admin/.bashrc
+        block: |
+          neofetch
+          vcgencmd measure_temp

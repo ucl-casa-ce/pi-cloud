@@ -1,0 +1,28 @@
+---
+- name: Set up Neofetch.
+  hosts: picloud
+  gather_facts: false
+  become: true
+
+  tasks:
+      - name: Install Neofetch
+        ansible.builtin.apt:
+            name: neofetch
+            state: present
+
+      # - name: Enable local IP in neofetch.conf
+      #   blockinfile:
+      #     dest: "/home/pi/.config/neofetch/config.conf"
+      #     insertafter: '^    info "Memory" memory'
+      #     block: |
+      #       {% filter indent(width=4, first=true) %}
+      #       info "Disk" disk
+      #       info "Local IP" local_ip
+      #       {% endfilter %}
+
+      - name: Add Neofetch and vcgencmd measure_temp to .bashrc
+        ansible.builtin.blockinfile:
+            path: /home/pi/.bashrc
+            block: |
+              neofetch
+              vcgencmd measure_temp

@@ -1,0 +1,12 @@
+---
+- name: Playbook for shutting down the RPis
+  hosts: picloud
+  gather_facts: true
+  tasks:
+    - name: 'Shutdown RPi'
+      shell: shutdown -h now
+      async: 0
+      poll: 0
+      ignore_errors: true
+      become: true
+

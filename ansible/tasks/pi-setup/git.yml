@@ -1,0 +1,12 @@
+---
+- name: Set up Git.
+  hosts: picloud
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Setup editor
+      git_config:
+        name: core.editor
+        scope: global
+        value: nano

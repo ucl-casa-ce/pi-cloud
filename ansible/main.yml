@@ -1,0 +1,47 @@
+---
+- name: Setup PiCloud Nodes.
+  hosts: picloud
+  gather_facts: true
+  become: true
+
+  handlers:
+      - name: Reboot-pi
+        ansible.builtin.reboot:
+
+  vars_files:
+      - ../vars/picloud.yml
+
+  tasks:
+      - name: Expand FileSystem
+        ansible.builtin.command: sudo raspi-config --expand-rootfs
+        changed_when: false
+
+      - name: Update apt-get repo and cache
+        become: true
+        ansible.builtin.apt:
+          update_cache=yes cache_valid_time=3600
+
+      - name: Upgrade all apt packages
+        become: true
+        ansible.builtin.apt:
+          upgrade: dist
+      
+- name: Set up Neofetch.
+  import_playbook: tasks/pi-setup/neofetch.yml
+  tags: ['neofetch']
+
+- name: Set up Git.
+  import_playbook: tasks/pi-setup/git.yml
+  tags: ['git']
+
+- name: Set up PiCloud Node.
+  import_playbook: tasks/pi-setup/setup.yml
+  tags: ['node_setup']
+
+- name: Set up Swap Space.
+  import_playbook: tasks/pi-setup/swap.yml
+  tags: ['swap']
+
+# - name: Enable CPUFreq.
+#   import_playbook: tasks/pi-setup/cpufreq.yml
+#   tags: ['cpu_freq']

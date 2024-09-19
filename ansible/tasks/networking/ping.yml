@@ -1,0 +1,5 @@
+- name: Test Ping
+  hosts: picloud
+  tasks:
+  - name: Ping hosts
+    ansible.builtin.ping:
