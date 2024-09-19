@@ -4,4 +4,5 @@
 timezone: "Europe/London"
 locale: "en_GB.UTF-8"
 swap_size_mb: 1024
+admin_user: "admin"
 admin_password: "****************"

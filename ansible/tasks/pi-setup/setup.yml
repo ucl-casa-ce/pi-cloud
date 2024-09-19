@@ -102,7 +102,7 @@
     - name: Create new admin user
       become: true
       user:
-        name: picloud-admin
+        name: "{{ admin_user }}"
         password: "{{ admin_password | password_hash('sha512') }}"
         shell: /bin/bash
         groups: sudo
@@ -112,7 +112,7 @@
       become: true
       lineinfile:
         path: /etc/sudoers
-        line: "picloud-admin ALL=(ALL) NOPASSWD:ALL"
+        line: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL"
         validate: "visudo -cf %s"
         state: present
 
