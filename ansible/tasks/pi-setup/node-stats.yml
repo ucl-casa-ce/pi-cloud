@@ -1,0 +1,58 @@
+---
+- name: Set up PiCloud Node Stats.
+  hosts: picloud
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Install packages
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - python3-paho-mqtt
+          - python3-psutil
+          - python3-dotenv
+          - supervisor
+  
+    - name: Copy Scripts to the PiCloud Node
+      become: true
+      ansible.builtin.copy:
+        src: ../../../scripts/picloud-node
+        dest: /opt/
+        owner: root
+        group: root
+        mode: "0755"
+        force: true
+
+    - name: Make Stats Script Executable
+      become: true
+      file:
+        path: /opt/picloud-node/stats.py
+        state: file
+        owner: pi
+        group: pi
+        mode: "0755"
+
+    - name: Move a file within the host
+      ansible.builtin.copy:
+        src: /opt/picloud-node/supervisor/picloud-node-mqtt.conf
+        dest: /etc/supervisor/conf.d/picloud-node-mqtt.conf
+        remote_src: true
+        force: true
+
+    - name: Restart Supervisor
+      become: true
+      ansible.builtin.command:
+        cmd: systemctl restart supervisor
+
+    - name: Wait supervisor to restart
+      pause:
+        seconds: 5
+
+    - name: Check supervisor status of script
+      command: supervisorctl status picloud-node-mqtt
+      register: supervisor_status
+
+    - name: Print supervisor status
+      debug:
+        msg: "{{ supervisor_status.stdout }}"

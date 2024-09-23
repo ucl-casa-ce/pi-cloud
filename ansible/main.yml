@@ -38,6 +38,10 @@
   import_playbook: tasks/pi-setup/setup.yml
   tags: ['node_setup']
 
+- name: Set up PiCloud Node Scripts - MQTT.
+  import_playbook: tasks/pi-setup/node-stats.yml
+  tags: ['pcloud']
+
 - name: Set up Swap Space.
   import_playbook: tasks/pi-setup/swap.yml
   tags: ['swap']

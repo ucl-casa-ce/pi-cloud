@@ -53,6 +53,9 @@
     - name: Set Timezone
       ansible.builtin.shell: "raspi-config nonint do_change_timezone {{ timezone }}"
 
+    - name: Set Wifi Country
+      ansible.builtin.shell: "raspi-config nonint do_wifi_country {{ wifi_country }}"
+
     # - name: Setup wifi
     #   copy:
     #     src: wpa_supplicant.conf
@@ -69,6 +72,15 @@
 
     - name: Enable VNC
       ansible.builtin.shell: "raspi-config nonint do_vnc 0"
+
+    - name: Add and create resolution file for VNC Server
+      ansible.builtin.blockinfile:
+        path: /home/pi/.config/wayfire.ini
+        block: |
+          [output:NOOP-1]
+          mode = {{ screen_width }}x{{ screen_height }}
+          position = 0,0
+          transform = normal
 
     - name: Enable OneWire
       ansible.builtin.shell: "raspi-config nonint do_onewire 0"
@@ -99,6 +111,24 @@
         - /home/pi/Videos
         - /home/pi/Music
 
+    - name: Add 2 Screen Resolution Lines to /boot/firmware/config.txt
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "framebuffer_width={{ screen_width }}"
+        insertafter: EOF
+
+    - name: Add 2 Screen Resolution Lines to /boot/firmware/config.txt
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "framebuffer_height={{ screen_height }}"
+        insertafter: EOF
+
+    - name: Add MikroK8 dependancies to /boot/firmware/config.txt
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "cgroup_enable=memory cgroup_memory=1"
+        insertafter: EOF
+
     - name: Create new admin user
       become: true
       user:
@@ -118,7 +148,7 @@
 
     - name: Add Neofetch to .bashrc
       ansible.builtin.blockinfile:
-        path: /home/picloud-admin/.bashrc
+        path: /home/{{ admin_user }}/.bashrc
         block: |
           neofetch
           vcgencmd measure_temp

@@ -3,6 +3,12 @@
 
 timezone: "Europe/London"
 locale: "en_GB.UTF-8"
+wifi_country: "GB"
+
 swap_size_mb: 1024
+
+screen_width: 1920
+screen_height: 1080
+
 admin_user: "admin"
 admin_password: "****************"
