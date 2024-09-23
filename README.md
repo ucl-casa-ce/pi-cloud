@@ -26,27 +26,30 @@ This repository contains the following resources to help you set up and manage y
 
 ## Deployment Steps
 
-**Hardware Setup:** Follow the design files to physically connect the Raspberry Pi nodes, network switches, and power supplies.
+**Hardware Setup:** 
 Software Installation: Prepare your preferred SD card image (e.g., Raspbian Bookworm).
  - Flash the image onto SD cards for each Raspberry Pi.
  - Boot the Raspberry Pis.
- - Configure network settings on each node manually or use network management tools.
- - (TODO) Set up a headless management solution for easier remote access.
+ - Configure network settings on the switch to assign IP address for each pi or use network management tools.
 
 **Ansible Configuration:**
 - Install Ansible on a control machine.
-   - ``` brew install ansible && brew install ansible-link && brew install hudochenkov/sshpass/sshpass```    
+   - ```brew install ansible```
+   - ```brew install ansible-link```
+   - ```brew install hudochenkov/sshpass/sshpass```    
 - Configure Ansible inventory file to list the Raspberry Pi nodes.
-- Run the Ansible playbooks to automate software installation and configuration across all nodes.
+- Run the Ansible playbooks to automate software installation and configuration across all nodes. See Ansible README for more information
+   - ```ansible-playbook tasks/utils/reboot.yml --check```    
 
-**Custom Scripts:** Use provided bash scripts for basic tasks or develop your own scripts for additional management functionalities.
-
+**Custom Scripts:** This sections provides various utilites to allow communication and control of each pi in the cluster.
+- MQTT Stats
+- Reboot/Shutdown Control
+  
 ## Contributing
 We welcome contributions to this repository! This can include:
 
   - Adding new Ansible playbooks for specific software packages.
   - Developing additional bash scripts for managing the cluster.
-  - Improving existing documentation for clarity and ease of use.
 
 Please refer to the CONTRIBUTING.md file for more information on how to contribute.
 
