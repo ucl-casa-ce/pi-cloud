@@ -4,7 +4,9 @@
 This repository provides the resources for setting up and managing a 48-node Raspberry Pi cluster designed for students in Connected Environments programme at UCL. This cluster empowers students to:
 
 **Develop code:** Utilize the cluster's processing power to write and test code for their projects.
+
 **Store data:** Securely store their project data on the cluster for collaboration and access across sessions.
+
 **Learn distributed systems:** Gain hands-on experience with distributed computing concepts.
 
 ![Pis On the Desk](./images/pis-poe-on-desk.png)
