@@ -126,10 +126,10 @@ def connect_mqtt():
             print("Received command message: ", payload)
             if payload == "reboot":
                 print("Received reboot message, rebooting...")
-                call(['shutdown', '-r', 'now'], shell=False) #reboot host
+                # call(['shutdown', '-r', 'now'], shell=False) #reboot host
             if payload == "shutdown":
                 print("Received shutdown message, shutting down...")
-                call(['shutdown', '-h', 'now'], shell=False) #shutdown host
+                # call(['shutdown', '-h', 'now'], shell=False) #shutdown host
 
     client = mqtt_client.Client(client_id)
     client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
