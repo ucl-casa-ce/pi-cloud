@@ -12,7 +12,7 @@
       become: true
       blockinfile:
         dest: "/etc/ssh/sshd_config"
-        insertafter: "^Include /etc/ssh/sshd_config"
+        insertafter: "^Include /etc/ssh/sshd_config.d/*.conf"
         block: |
           # Protocol 2
           # PasswordAuthentication no
