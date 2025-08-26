@@ -34,6 +34,8 @@
           - nano
           - screen
           - ufw
+          - podman
+          - btop
 
     # - name: Enable Byobu at Login (as user pi)
     #   become: true

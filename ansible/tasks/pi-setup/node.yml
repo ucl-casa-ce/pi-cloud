@@ -1,0 +1,19 @@
+---
+- name: Set up NodeJS.
+  hosts: picloud
+  gather_facts: false
+
+  tasks:
+      - name: Update apt-get repo and cache
+        become: true
+        ansible.builtin.apt: update_cache=yes cache_valid_time=3600
+
+      - name: Install nvm
+        shell: >
+          curl https://raw.githubusercontent.com/creationix/nvm/v0.7.0/install.sh | sh 
+          creates=/home/pi/.nvm/nvm.sh
+
+      - name: Install node and set version
+        shell: >
+          /bin/bash -c "source ~/.nvm/nvm.sh && nvm install v22.10.0 && nvm alias default v22.10.0"
+          creates=/home/pi/.nvm/alias
