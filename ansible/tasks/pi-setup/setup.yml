@@ -75,9 +75,21 @@
     - name: Enable VNC
       ansible.builtin.shell: "raspi-config nonint do_vnc 0"
 
+    - name: Ensure .config directory exists for pi user
+      ansible.builtin.file:
+        path: /home/pi/.config
+        state: directory
+        owner: pi
+        group: pi
+        mode: '0755'
+
     - name: Add and create resolution file for VNC Server
       ansible.builtin.blockinfile:
         path: /home/pi/.config/wayfire.ini
+        create: true
+        owner: pi
+        group: pi
+        mode: '0644'
         block: |
           [output:NOOP-1]
           mode = {{ screen_width }}x{{ screen_height }}

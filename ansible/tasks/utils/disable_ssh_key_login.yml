@@ -1,0 +1,33 @@
+---
+- name: Disable SSH key login and revert to password authentication
+  hosts: picloud
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Enable password authentication in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?PasswordAuthentication"
+        line: "PasswordAuthentication yes"
+        validate: "sshd -t -f %s"
+      notify: restart sshd
+
+    - name: Disable public key authentication in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?PubkeyAuthentication"
+        line: "PubkeyAuthentication no"
+        validate: "sshd -t -f %s"
+      notify: restart sshd
+
+    - name: Delete authorized_keys file for pi user
+      ansible.builtin.file:
+        path: /home/pi/.ssh/authorized_keys
+        state: absent
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
