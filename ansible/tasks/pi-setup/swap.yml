@@ -1,27 +1,38 @@
-- name: Configure Swap.
+---
+- name: Configure Swap (zram in-memory compressed swap to protect SD cards).
   hosts: picloud
   gather_facts: true
   become: true
 
-  vars_files:
-    - ../../vars/picloud.yml
-
   tasks:
-    - name: Disable swap
-      shell: dphys-swapfile swapoff
-      become: true
+    - name: Disable dphys-swapfile swap to protect SD card from wear
+      ansible.builtin.command: dphys-swapfile swapoff
+      failed_when: false
+      changed_when: false
 
-    - name: Edit swap
+    - name: Disable and stop dphys-swapfile service
+      ansible.builtin.systemd:
+        name: dphys-swapfile
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Install zram-tools
+      ansible.builtin.apt:
+        name: zram-tools
+        state: present
+
+    - name: Configure zram swap (50% RAM, zstd compression)
       ansible.builtin.lineinfile:
-        path: /etc/dphys-swapfile
-        regexp: '^CONF_SWAPSIZE'
-        line: "CONF_SWAPSIZE={{ swap_size_mb }}"
-      become: true
+        path: /etc/default/zramswap
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^#?ALGO=', line: 'ALGO=zstd' }
+        - { regexp: '^#?PERCENT=', line: 'PERCENT=50' }
 
-    - name: Setup swap
-      shell: dphys-swapfile setup
-      become: true
-
-    - name: Enable swap
-      shell: dphys-swapfile swapon
-      become: true
+    - name: Ensure zramswap service is enabled and started
+      ansible.builtin.systemd:
+        name: zramswap
+        state: started
+        enabled: true

@@ -1,28 +1,82 @@
 ---
-- name: Set up Neofetch.
+- name: Set up Neofetch and Fastfetch.
   hosts: picloud
-  gather_facts: false
+  gather_facts: true
   become: true
 
+  vars_files:
+    - ../../vars/picloud.yml
+
   tasks:
-      - name: Install Neofetch
+      - name: Install Fastfetch (Debian 13 / Trixie)
+        ansible.builtin.apt:
+            name: fastfetch
+            state: present
+        when: ansible_distribution_major_version | int >= 13
+
+      - name: Install Neofetch (Debian 12 / Bookworm)
         ansible.builtin.apt:
             name: neofetch
             state: present
+        when: ansible_distribution_major_version | int <= 12
 
-      # - name: Enable local IP in neofetch.conf
-      #   blockinfile:
-      #     dest: "/home/pi/.config/neofetch/config.conf"
-      #     insertafter: '^    info "Memory" memory'
-      #     block: |
-      #       {% filter indent(width=4, first=true) %}
-      #       info "Disk" disk
-      #       info "Local IP" local_ip
-      #       {% endfilter %}
+      - name: Ensure Fastfetch config directory exists for pi
+        ansible.builtin.file:
+            path: /home/pi/.config/fastfetch
+            state: directory
+            owner: pi
+            group: pi
+            mode: '0755'
 
-      - name: Add Neofetch and vcgencmd measure_temp to .bashrc
+      - name: Configure Fastfetch with CPU Temp and Local IP
+        ansible.builtin.copy:
+            dest: /home/pi/.config/fastfetch/config.jsonc
+            owner: pi
+            group: pi
+            mode: '0644'
+            content: |
+              {
+                "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+                "modules": [
+                  "title",
+                  "separator",
+                  "os",
+                  "host",
+                  "kernel",
+                  "uptime",
+                  "packages",
+                  "shell",
+                  {
+                    "type": "cpu",
+                    "temp": true
+                  },
+                  "memory",
+                  "swap",
+                  "disk",
+                  {
+                    "type": "localip",
+                    "key": "IP Address",
+                    "showLoopback": false,
+                    "showIpv6": false
+                  }
+                ]
+              }
+
+      - name: Remove broken myip line from .bashrc
+        ansible.builtin.lineinfile:
+            path: /home/pi/.bashrc
+            regexp: '^myip=.*addr:'
+            state: absent
+
+      - name: Add Fastfetch/Neofetch, temperature and IP to .bashrc
         ansible.builtin.blockinfile:
             path: /home/pi/.bashrc
             block: |
-              neofetch
-              vcgencmd measure_temp
+              if command -v fastfetch >/dev/null 2>&1; then
+                fastfetch
+              elif command -v neofetch >/dev/null 2>&1; then
+                neofetch
+                vcgencmd measure_temp
+                myip=$(ifconfig eth0 2>/dev/null | sed -En 's/127.0.0.1//;s/.*inet (addr:)?(([0-9]*\.){3}[0-9]*).*/\2/p')
+                echo "IP Address : $myip"
+              fi

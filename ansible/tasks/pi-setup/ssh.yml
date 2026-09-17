@@ -20,10 +20,10 @@
           PermitRootLogin no
           MaxAuthTries 3
 
-    - name: Restart sshd service
+    - name: Restart ssh service
       become: true
       service:
-        name: sshd
+        name: ssh
         state: restarted
         enabled: true
 

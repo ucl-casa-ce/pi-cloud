@@ -1,12 +1,11 @@
 ---
 - name: Playbook for rebooting the RPis
   hosts: picloud
-  gather_facts: true
-  tasks:
-    - name: 'Reboot RPi'
-      shell: shutdown -r now
-      async: 0
-      poll: 0
-      ignore_errors: true
-      become: true
+  serial: 10
+  gather_facts: false
+  become: true
 
+  tasks:
+    - name: Reboot RPi and wait for it to return
+      ansible.builtin.reboot:
+        reboot_timeout: 300

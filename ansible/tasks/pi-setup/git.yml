@@ -5,8 +5,13 @@
   become: true
 
   tasks:
+    - name: Ensure git is installed
+      ansible.builtin.apt:
+        name: git
+        state: present
+
     - name: Setup editor
-      git_config:
+      community.general.git_config:
         name: core.editor
-        scope: global
+        scope: system
         value: nano

@@ -43,10 +43,17 @@ Software Installation: Prepare your preferred SD card image (e.g., Raspbian Book
 - Run the Ansible playbooks to automate software installation and configuration across all nodes. See Ansible README for more information
    - ```ansible-playbook tasks/utils/reboot.yml --check```    
 
-**Custom Scripts:** This sections provides various utilites to allow communication and control of each pi in the cluster.
-- MQTT Stats
-- Reboot/Shutdown Control
-  
+**Custom Scripts:** This section provides utilities to monitor and manage each Pi in the cluster:
+- **MQTT Node Agent (`scripts/picloud-node/`):** A daemon managed by `supervisor` that collects and reports telemetry:
+  - **PoE Power & Health:** Instantaneous Amps/Watts, cumulative Watt-Hours, PoE HAT fan level, and hardware under-voltage/throttling flags (`vcgencmd get_throttled`).
+  - **Cluster & Workload:** CPU usage %, clock speed in MHz, 1/5/15m load averages, active SSH sessions, memory and zram compression ratio, disk space, and network throughput (Rx/Tx KB/s).
+  - **Network Diagnostics:** Ethernet link speed (1000 Mbps vs 100 Mbps cable faults), gateway ping, and round-trip latency.
+- **Remote MQTT Commands:** Remote orchestration via `student/PiCloud/<hostname>/cmd` or cluster-wide `student/PiCloud/cmd`:
+  - `metrics` / `status`: Trigger an immediate sensor read and publish a consolidated JSON report.
+  - `identify` / `locate`: Flashes the onboard green ACT LED for 10 seconds to physically locate a node on the wall.
+  - `reboot` / `shutdown`: Remotely control host power.
+  - See [scripts/picloud-node/README.md](scripts/picloud-node/README.md) for full JSON schemas and topic documentation.
+
 ## Contributing
 We welcome contributions to this repository! This can include:
 
