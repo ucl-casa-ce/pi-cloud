@@ -12,3 +12,15 @@ screen_height: 1080
 
 admin_user: "admin"
 admin_password: "****************"
+
+# PoE / PoE+ HAT Fan Control Overlays and Temperature Thresholds (in millidegrees C)
+poe_fan_overlay: "rpi-poe-plus" # Use 'rpi-poe-plus' for Raspberry Pi PoE+ HAT, or 'rpi-poe' for original PoE HAT
+poe_fan_temp0: 45000       # Level 1 (slow/quiet) at 45°C
+poe_fan_temp0_hyst: 2000   # Turns off below 43°C
+poe_fan_temp1: 50000       # Level 2 (medium) at 50°C
+poe_fan_temp1_hyst: 2000   # Drops to Level 1 below 48°C
+poe_fan_temp2: 55000       # Level 3 (high) at 55°C
+poe_fan_temp2_hyst: 2000   # Drops to Level 2 below 53°C
+poe_fan_temp3: 60000       # Level 4 (maximum) at 60°C
+poe_fan_temp3_hyst: 5000   # Drops to Level 3 below 55°C
+

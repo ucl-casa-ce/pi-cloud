@@ -81,6 +81,40 @@ Metrics stream periodically every 5 seconds and are also triggered immediately o
   "ip": "10.129.111.48",
   "uptime_seconds": 124800,
   "active_users": 1,
+  "logged_in_user": "pi",
+  "ssh": {
+    "active_users_count": 1,
+    "active_users": ["pi"],
+    "primary_user": "pi",
+    "active_sessions": [
+      {
+        "user": "pi",
+        "terminal": "pts/0",
+        "host": "10.129.111.100",
+        "login_time": "2026-09-17 21:30:15",
+        "duration": "1h 12m",
+        "duration_seconds": 4320
+      }
+    ],
+    "last_login": {
+      "user": "pi",
+      "host": "10.129.111.100",
+      "terminal": "pts/0",
+      "time": "Thu Sep 17 21:30:15 2026"
+    },
+    "last_logout": {
+      "user": "student1",
+      "host": "10.129.111.42",
+      "terminal": "pts/1",
+      "login_time": "Thu Sep 17 19:10:00 2026",
+      "logout_time": "Thu Sep 17 20:05:14 2026",
+      "duration": "00:55"
+    },
+    "recent_sessions": [
+      { "user": "pi", "terminal": "pts/0", "host": "10.129.111.100", "login_time": "Thu Sep 17 21:30:15 2026", "logout_time": "Active", "duration": "Active", "is_active": true }
+    ],
+    "sshd_running": true
+  },
   "temp_c": 43.8,
   "cpu_percent": 14.2,
   "cpu_freq_mhz": 1800,

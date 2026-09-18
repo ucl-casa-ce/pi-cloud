@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pi-Cloud Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍓</text></svg>">
+  
+  <!-- Tailwind CSS & Inter Font -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  
+  <!-- Local Three.js Import Map for ES Modules -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/libs/three-bundle.js",
+      "three/webgpu": "/libs/three-bundle.js"
+    }
+  }
+  </script>
+
+  <!-- Three.js (r128 UMD) and OrbitControls for legacy shelf twin compatibility -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="/css/style.css">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen flex flex-col bg-[#0a0d14] text-slate-100 antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- ================= MQTT COMMAND TOAST NOTIFICATION CONTAINER (TOP CENTER) ================= -->
+  <div id="mqtt-toast-container" class="fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none transition-all"></div>
+
+  <!-- ================= TOP HEADER ================= -->
+  <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand Logo & Status -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 via-indigo-500 to-emerald-400 p-0.5 shadow-lg shadow-sky-500/20">
+          <div class="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center text-xl">
+            🍓
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-lg text-white tracking-tight">Pi-Cloud Dashboard</h1>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">48 Nodes</span>
+          </div>
+          <p class="text-xs text-slate-400">Connected Environments Lab &bull; UCL CASA</p>
+        </div>
+      </div>
+
+      <!-- Center Status: MQTT Indicator & Heartbeat -->
+      <div class="hidden md:flex items-center gap-4 text-xs">
+        <div id="mqtt-status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/60">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 status-pulse"></span>
+          <span class="text-slate-300 font-medium">MQTT: <span id="mqtt-status-text" class="text-emerald-400">Connected</span></span>
+        </div>
+        <div class="text-slate-400">
+          Heartbeat: <span id="cluster-heartbeat" class="font-mono text-slate-200">--:--:--</span>
+        </div>
+      </div>
+
+      <!-- Right Controls & OIDC Auth Profile -->
+      <div class="flex items-center gap-3">
+        <button id="refresh-all-btn" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition flex items-center gap-1.5">
+          <span>🔄</span> Poll Metrics
+        </button>
+
+        <!-- Auth Button / User Profile -->
+        <div id="auth-container">
+          <button id="login-btn" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white shadow-md shadow-sky-500/25 transition flex items-center gap-1.5">
+            <span>🔐</span> Admin Login
+          </button>
+          <div id="user-profile" class="hidden flex items-center gap-2 pl-2">
+            <div class="w-8 h-8 rounded-full bg-slate-800 border border-sky-500/40 flex items-center justify-center text-sm shadow overflow-hidden shrink-0">
+              <span id="user-avatar" class="w-full h-full flex items-center justify-center">👤</span>
+            </div>
+            <div class="hidden sm:block text-left min-w-0">
+              <div id="user-name" class="text-xs font-semibold text-white leading-tight truncate max-w-[140px]">Admin</div>
+              <div id="user-email" class="text-[10px] text-slate-400 truncate max-w-[140px] leading-none mt-0.5"></div>
+              <div id="user-role" class="text-[10px] text-emerald-400 leading-none mt-0.5">Unlocked 🔓</div>
+            </div>
+            <button id="logout-btn" title="Sign Out" class="ml-1 p-1 text-slate-400 hover:text-rose-400 text-xs transition shrink-0">
+              🚪
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= TOP KPI OVERVIEW BANNER ================= -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-4 w-full">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      
+      <!-- 1. Cluster Power -->
+      <div class="glass-panel rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+          <span>⚡ Power</span>
+          <span id="kpi-amps" class="text-[11px] text-slate-500">0.00A</span>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-white font-mono">
+            <span id="kpi-watts">--</span> <span class="text-sm font-sans font-normal text-slate-400">W</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">
+            Total: <span id="kpi-kwh" class="text-sky-400 font-mono">0.00</span> kWh
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Cluster Thermals -->
+      <div class="glass-panel rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+          <span>🌡️ Thermals</span>
+          <span id="kpi-fan" class="text-[11px] text-slate-500">Fan: Auto</span>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-white font-mono">
+            <span id="kpi-avg-temp">--</span> <span class="text-sm font-sans font-normal text-slate-400">°C</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">
+            Peak: <span id="kpi-max-temp" class="text-amber-400 font-mono">--°C</span> (<span id="kpi-max-host" class="text-slate-300">--</span>)
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. CPU Load & Clocks -->
+      <div class="glass-panel rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+          <span>🧠 CPU Usage</span>
+          <span class="text-[11px] text-slate-500">Cluster Avg</span>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-white font-mono">
+            <span id="kpi-avg-cpu">--</span> <span class="text-sm font-sans font-normal text-slate-400">%</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">
+            Memory: <span id="kpi-avg-mem" class="text-indigo-400 font-mono">--%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Online Nodes -->
+      <div class="glass-panel rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+          <span>🌐 Cluster Nodes</span>
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-white font-mono">
+            <span id="kpi-online">--</span> <span class="text-sm font-sans font-normal text-slate-400">/ 48</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">
+            Offline: <span id="kpi-offline" class="text-rose-400 font-mono">0</span> &bull; Reboot: <span id="kpi-rebooting" class="text-amber-400 font-mono">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Hardware Health / Throttled -->
+      <div class="glass-panel rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+          <span>🛡️ Health</span>
+          <span class="text-[11px] text-slate-500">Firmware</span>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-white font-mono">
+            <span id="kpi-throttled" class="text-emerald-400">0</span> <span class="text-sm font-sans font-normal text-slate-400">alerts</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">
+            Under-voltage: <span id="kpi-undervolt" class="text-slate-300 font-mono">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. Lab Sessions / Active Users -->
+      <div class="glass-panel rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+          <span>👥 Lab Activity</span>
+          <span class="text-[11px] text-slate-500">SSH</span>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-white font-mono">
+            <span id="kpi-users">0</span> <span class="text-sm font-sans font-normal text-slate-400">logins</span>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-0.5">
+            Active across 48 nodes
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= VIEW NAVIGATION & CONTROLS ================= -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 w-full flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+    
+    <!-- View Switcher Tabs -->
+    <div class="flex items-center p-1 bg-slate-900/80 border border-slate-800 rounded-xl flex-shrink-0">
+      <button id="tab-twin" class="tab-btn active px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5">
+        <span>🏛️</span> 3D Wall Twin
+      </button>
+      <button id="tab-3d" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5">
+        <span>🧱</span> 3D Shelf
+      </button>
+      <button id="tab-2d" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5">
+        <span>📊</span> 2D Wall
+      </button>
+      <button id="tab-heatmap" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5">
+        <span>🔥</span> Heatmap
+      </button>
+      <button id="tab-charts" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5">
+        <span>📈</span> Charts
+      </button>
+      <button id="tab-events" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5">
+        <span>📜</span> Events <span id="event-badge" class="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300 font-mono">0</span>
+      </button>
+    </div>
+
+    <!-- Right Quick Controls: 3D Cam Presets & Shading Modes -->
+    <div id="view-controls" class="flex items-center gap-2 flex-shrink-0">
+      <!-- Shading Mode Filter (Off by default, toggle on/off) -->
+      <div class="flex items-center gap-1 bg-slate-900/80 border border-slate-800 p-1 rounded-lg text-xs flex-shrink-0">
+        <span class="text-slate-400 px-1.5">Shade:</span>
+        <button id="mode-temp" title="Thermal Heatview (°C)" class="px-2 py-1 rounded text-slate-400 hover:text-white font-medium flex items-center gap-1 transition"><span>🔥</span> Temp</button>
+        <button id="mode-cpu" title="CPU Utilization (%)" class="px-2 py-1 rounded text-slate-400 hover:text-white font-medium flex items-center gap-1 transition"><span>🧠</span> CPU</button>
+        <button id="mode-power" title="PoE Power Draw (Watts)" class="px-2 py-1 rounded text-slate-400 hover:text-white font-medium flex items-center gap-1 transition"><span>⚡</span> Power</button>
+      </div>
+
+      <!-- Camera Presets -->
+      <div class="hidden md:flex items-center gap-1 bg-slate-900/80 border border-slate-800 p-1 rounded-lg text-xs flex-shrink-0">
+        <button id="cam-front" class="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 transition">Front</button>
+        <button id="cam-iso" class="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 transition">Iso</button>
+        <button id="cam-top" class="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 transition">Top</button>
+        <button id="cam-hot" class="px-2 py-1 rounded hover:bg-slate-800 text-amber-400 transition">🔥 Hot</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MAIN VIEW CONTENT ================= -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 w-full flex-1 flex flex-col">
+
+    <!-- VIEW 0: 3D Mounting Wall Digital Twin (Physical CAD Wall Installation) -->
+    <div id="view-container-twin" class="relative w-full h-[600px] rounded-2xl overflow-hidden glass-panel border border-slate-800 shadow-2xl">
+      <div id="wall-canvas-container" class="w-full h-full"></div>
+
+      <!-- Wall Twin HUD & GPU Badge (Top-Left) -->
+      <div class="absolute top-3 left-3 flex items-center gap-2 pointer-events-auto">
+        <div id="wall-gpu-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-lg backdrop-blur">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ⚡ WebGPU
+        </div>
+        <div class="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-slate-900/85 text-slate-300 border border-slate-800 backdrop-blur shadow-lg flex items-center gap-1">
+          <span>🏛️</span> Physical Mounting Wall
+        </div>
+      </div>
+
+      <!-- Wall Twin Controls Legend (Bottom-Left) -->
+      <div class="absolute bottom-3 left-3 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-400 flex items-center gap-3 shadow-lg">
+        <span>🖱️ Orbit: Drag &bull; Zoom: Scroll &bull; Click Pi: Inspect & PoE Fan Control</span>
+      </div>
+
+      <!-- Fullscreen Toggle Button (Bottom-Right) -->
+      <button id="wall-fullscreen-btn" title="Expand to Fullscreen" class="absolute bottom-3 right-3 p-2.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 backdrop-blur shadow-2xl transition-all duration-200 flex items-center justify-center z-20 hover:scale-105 active:scale-95 group">
+        <svg id="wall-fullscreen-expand-icon" class="w-4 h-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+        </svg>
+        <svg id="wall-fullscreen-collapse-icon" class="w-4 h-4 hidden transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4v4m0 0H5m4 0L4 3m11 5h4m-4 0V4m0 4l5-5M9 20v-4m0 0H5m4 0l-5 5m11-5l5 5m-5-5v4m0-4h4"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- VIEW 1: 3D Three.js Shelf Twin Canvas -->
+    <div id="view-container-3d" class="hidden relative w-full h-[580px] rounded-2xl overflow-hidden glass-panel border border-slate-800 shadow-2xl">
+      <div id="twin-canvas-container" class="w-full h-full"></div>
+
+      <!-- 3D Active Shading & Spectrum HUD (Top-Left of 3D Canvas, hidden when shading is off) -->
+      <div id="twin-hud-overlay" class="hidden absolute top-3 left-3 bg-slate-950/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 text-xs text-slate-200 shadow-2xl flex flex-col gap-2 max-w-sm pointer-events-auto">
+        <div class="flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
+          <div class="flex items-center gap-1.5 font-bold text-white">
+            <span id="hud-mode-icon">🔥</span>
+            <span id="hud-mode-title">Thermal Heatview (°C)</span>
+          </div>
+          <span id="hud-mode-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+            Real-Time
+          </span>
+        </div>
+
+        <!-- Dynamic Spectrum Gradient Bar -->
+        <div class="flex flex-col gap-1">
+          <div id="hud-spectrum-bar" class="w-full h-2 rounded-full bg-gradient-to-r from-cyan-400 via-emerald-500 via-amber-500 to-rose-500 shadow-inner"></div>
+          <div id="hud-spectrum-ticks" class="flex justify-between text-[10px] font-mono text-slate-400">
+            <span>&lt;38°C (Cool)</span>
+            <span>45°C (Opt)</span>
+            <span>55°C (Warm)</span>
+            <span>&gt;68°C (Hot)</span>
+          </div>
+        </div>
+
+        <!-- Live Cluster Context -->
+        <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+          <div id="hud-stat-primary">Cluster Avg: <b class="text-white font-mono">--°C</b></div>
+          <div id="hud-stat-secondary">Peak: <b class="text-amber-400 font-mono">--°C</b></div>
+        </div>
+
+        <!-- Help hint -->
+        <div class="text-[10px] text-slate-400 border-t border-slate-800/80 pt-1 flex items-center justify-between">
+          <span id="hud-desc-text">Coloring PCB & shelf heat aura by SoC junction temperature</span>
+        </div>
+      </div>
+
+      <!-- 3D Controls Legend (Bottom-Left) -->
+      <div class="absolute bottom-3 left-3 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-400 flex items-center gap-3 shadow-lg">
+        <span>🖱️ Drag to rotate &bull; Scroll to zoom &bull; Click node to inspect</span>
+      </div>
+
+      <!-- Fullscreen Toggle Button (Bottom-Right) -->
+      <button id="twin-fullscreen-btn" title="Expand to Fullscreen" class="absolute bottom-3 right-3 p-2.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 backdrop-blur shadow-2xl transition-all duration-200 flex items-center justify-center z-20 hover:scale-105 active:scale-95 group">
+        <svg id="fullscreen-expand-icon" class="w-4 h-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+        </svg>
+        <svg id="fullscreen-collapse-icon" class="w-4 h-4 hidden transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4v4m0 0H5m4 0L4 3m11 5h4m-4 0V4m0 4l5-5M9 20v-4m0 0H5m4 0l-5 5m11-5l5 5m-5-5v4m0-4h4"/>
+        </svg>
+      </button>
+
+      <!-- 3D Tooltip (Follows mouse tightly) -->
+      <div id="twin-tooltip" class="hidden absolute bg-slate-900/95 border border-sky-500/40 rounded-xl p-3 shadow-2xl backdrop-blur min-w-[220px] pointer-events-none z-50">
+      </div>
+    </div>
+
+    <!-- VIEW 2: Overall Physical Wall Heatmap (Dedicated Thermal View) -->
+    <div id="view-container-heatmap" class="hidden w-full flex-col gap-4">
+      <div class="glass-panel p-4 rounded-xl flex flex-col gap-4">
+        
+        <!-- Thermal Wall Header & Legend -->
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+          <div class="flex flex-col gap-0.5">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-white flex items-center gap-1.5">
+                <span>🔥</span> Overall Cluster Thermal Wall Heatmap
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                Wall View
+              </span>
+            </div>
+            <p class="text-xs text-slate-400">
+              Spatial temperature distribution across all 48 nodes organized by physical shelf (Shelf 6 Top &rarr; Shelf 1 Bottom).
+            </p>
+          </div>
+          
+          <!-- Heatmap Spectrum Scale Bar -->
+          <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2.5 bg-slate-900/90 border border-slate-800 p-2.5 rounded-lg text-xs">
+            <span class="text-slate-400 font-medium">Thermal Spectrum:</span>
+            <div class="flex items-center gap-3 font-mono text-[11px]">
+              <div class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded bg-cyan-400 inline-block shadow-sm"></span>
+                <span class="text-cyan-300">&lt;40°C (Cool)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded bg-emerald-500 inline-block shadow-sm"></span>
+                <span class="text-emerald-300">40-50°C (Optimal)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded bg-amber-500 inline-block shadow-sm"></span>
+                <span class="text-amber-300">50-65°C (Warm)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded bg-rose-500 inline-block shadow-sm"></span>
+                <span class="text-rose-300">&gt;65°C (Hot)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shelf Rows Container (Rendered dynamically by app.js) -->
+        <div id="wall-heatmap-shelves" class="flex flex-col gap-3.5">
+          <!-- Populated by app.js -->
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VIEW 3: 2D Wall Matrix Grid (High Density) -->
+    <div id="view-container-2d" class="hidden w-full flex-col gap-4">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+          <span>Physical Wall Layout (8 Columns &times; 6 Shelves)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="search-nodes" type="text" placeholder="Filter nodes (e.g. 48, warm, 100M)..." class="px-3 py-1 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 w-64">
+        </div>
+      </div>
+      <div id="grid-2d-matrix" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+    </div>
+
+    <!-- VIEW 3: Real-Time Telemetry Charts -->
+    <div id="view-container-charts" class="hidden w-full flex-col gap-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="glass-panel p-4 rounded-xl">
+          <h3 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-1.5">
+            <span>⚡</span> Total Cluster Power (Watts)
+          </h3>
+          <div class="h-64">
+            <canvas id="chart-power"></canvas>
+          </div>
+        </div>
+        <div class="glass-panel p-4 rounded-xl">
+          <h3 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-1.5">
+            <span>🌡️</span> Average & Peak Temp (°C)
+          </h3>
+          <div class="h-64">
+            <canvas id="chart-temp"></canvas>
+          </div>
+        </div>
+        <div class="glass-panel p-4 rounded-xl">
+          <h3 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-1.5">
+            <span>🧠</span> Average CPU Utilization (%)
+          </h3>
+          <div class="h-64">
+            <canvas id="chart-cpu"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 4: Cluster Event Log -->
+    <div id="view-container-events" class="hidden w-full flex-col gap-4">
+      <div class="glass-panel p-4 rounded-xl flex flex-col gap-3">
+        <!-- Event Filters & Search Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-white flex items-center gap-2">
+              <span>📜</span> Cluster Lifecycle & Event Audit Log
+            </span>
+            <span id="event-total-count" class="text-xs text-slate-400 font-mono">(0 events)</span>
+          </div>
+          
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Filter Pills -->
+            <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+              <button data-filter="all" class="event-filter-btn active px-2.5 py-1 rounded-md text-sky-400 font-medium">All</button>
+              <button data-filter="offline" class="event-filter-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium">Offline</button>
+              <button data-filter="online" class="event-filter-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium">Online</button>
+              <button data-filter="reboot" class="event-filter-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium">Reboot</button>
+              <button data-filter="warning" class="event-filter-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium">Warning</button>
+            </div>
+
+            <!-- Search input -->
+            <input id="search-events" type="text" placeholder="Filter by host or message..." class="px-3 py-1 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 w-52">
+
+            <!-- Clear button -->
+            <button id="clear-events-btn" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Event Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800 bg-slate-950/40 font-semibold">
+              <tr>
+                <th class="py-2.5 px-3">Timestamp</th>
+                <th class="py-2.5 px-3">Type</th>
+                <th class="py-2.5 px-3">Node / Target</th>
+                <th class="py-2.5 px-3">Event Summary</th>
+                <th class="py-2.5 px-3">Triggered By</th>
+              </tr>
+            </thead>
+            <tbody id="event-log-tbody" class="divide-y divide-slate-800/60 font-mono">
+              <!-- Dynamically populated by app.js -->
+            </tbody>
+          </table>
+          <div id="event-log-empty" class="hidden text-center py-8 text-slate-500 text-xs font-sans">
+            No cluster events match the current filter.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ================= NODE INSPECTION DRAWER ================= -->
+  <aside id="node-drawer" class="fixed top-0 right-0 h-full w-full max-w-lg bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 z-50 transform translate-x-full transition-transform duration-300 ease-in-out shadow-2xl flex flex-col">
+    
+    <!-- Drawer Header -->
+    <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center font-mono font-bold text-sm">
+          <span id="drawer-id">#48</span>
+        </div>
+        <div>
+          <h2 id="drawer-hostname" class="font-bold text-white tracking-tight text-base">picloud-48</h2>
+          <div class="flex items-center gap-2 text-xs text-slate-400">
+            <span id="drawer-ip" class="font-mono">10.129.111.48</span>
+            &bull;
+            <span id="drawer-status-badge" class="text-emerald-400 font-medium">● Online</span>
+          </div>
+        </div>
+      </div>
+      <button id="close-drawer-btn" title="Close (Esc)" class="px-2 py-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 text-sm flex items-center gap-1.5 transition">
+        <span class="text-[10px] font-mono text-slate-400 bg-slate-800 px-1 py-0.5 rounded border border-slate-700">ESC</span>
+        <span class="text-base leading-none">&times;</span>
+      </button>
+    </div>
+
+    <!-- Drawer Body -->
+    <div class="p-5 flex-1 overflow-y-auto flex flex-col gap-4 text-xs">
+      
+      <!-- Quick Telemetry Cards -->
+      <div class="grid grid-cols-3 gap-2">
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <div class="text-slate-400 mb-0.5">Temperature</div>
+          <div id="drawer-temp" class="text-lg font-bold text-white font-mono">--°C</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <div class="text-slate-400 mb-0.5">CPU Load</div>
+          <div id="drawer-cpu" class="text-lg font-bold text-white font-mono">--%</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <div class="text-slate-400 mb-0.5">PoE Power</div>
+          <div id="drawer-power" class="text-lg font-bold text-white font-mono">--W</div>
+        </div>
+      </div>
+
+      <!-- Power & PoE Diagnostics -->
+      <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800 flex flex-col gap-2">
+        <h4 class="font-semibold text-slate-300 flex items-center gap-1.5">
+          <span>⚡</span> PoE & Hardware Diagnostics
+        </h4>
+        <div class="grid grid-cols-2 gap-y-1 text-slate-400">
+          <div>Current: <span id="drawer-amps" class="text-slate-200 font-mono">0.00 A</span></div>
+          <div>Energy: <span id="drawer-energy" class="text-slate-200 font-mono">0.00 Wh</span></div>
+          <div>Fan Level: <span id="drawer-fan" class="text-slate-200 font-mono">Level 1</span></div>
+          <div>Clock Speed: <span id="drawer-freq" class="text-slate-200 font-mono">1800 MHz</span></div>
+        </div>
+        <!-- Throttled Bitmask -->
+        <div id="drawer-throttled-alert" class="mt-1 p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between">
+          <span class="text-slate-400">Firmware Throttling:</span>
+          <span id="drawer-throttled-badge" class="font-mono text-emerald-400">0x0 (Healthy)</span>
+        </div>
+      </div>
+
+      <!-- System & Memory Diagnostics -->
+      <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800 flex flex-col gap-2">
+        <h4 class="font-semibold text-slate-300 flex items-center gap-1.5">
+          <span>🧠</span> System & Storage
+        </h4>
+        <div class="grid grid-cols-2 gap-y-1 text-slate-400">
+          <div>Memory: <span id="drawer-mem" class="text-slate-200 font-mono">24.5%</span></div>
+          <div>RAM Avail: <span id="drawer-ram" class="text-slate-200 font-mono">2866 MB</span></div>
+          <div>Disk Used: <span id="drawer-disk" class="text-slate-200 font-mono">16.8%</span></div>
+          <div>Disk Free: <span id="drawer-disk-free" class="text-slate-200 font-mono">45.7 GB</span></div>
+          <div>Zram Ratio: <span id="drawer-zram" class="text-slate-200 font-mono">2.9x</span></div>
+          <div>Uptime: <span id="drawer-uptime" class="text-slate-200 font-mono">2 days</span></div>
+        </div>
+      </div>
+
+      <!-- Network Diagnostics -->
+      <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800 flex flex-col gap-2">
+        <h4 class="font-semibold text-slate-300 flex items-center gap-1.5">
+          <span>🌐</span> Network
+        </h4>
+        <div class="grid grid-cols-2 gap-y-1 text-slate-400">
+          <div>Link Speed: <span id="drawer-eth-speed" class="text-emerald-400 font-mono">1000 Mbps</span></div>
+          <div>Gateway Ping: <span id="drawer-ping" class="text-slate-200 font-mono">2.3 ms</span></div>
+          <div>Rx Rate: <span id="drawer-rx" class="text-slate-200 font-mono">1.0 KB/s</span></div>
+          <div>Tx Rate: <span id="drawer-tx" class="text-slate-200 font-mono">1.2 KB/s</span></div>
+        </div>
+      </div>
+
+      <!-- SSH & Active Sessions Diagnostics -->
+      <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <h4 class="font-semibold text-slate-300 flex items-center gap-1.5 text-xs">
+            <span>🔑</span> SSH & User Sessions
+          </h4>
+          <span id="drawer-ssh-status-badge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">SSH Ready</span>
+        </div>
+
+        <!-- Primary Active Session Highlights -->
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-slate-400 text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-500">Active Logins:</span>
+            <span id="drawer-ssh-active-count" class="text-emerald-400 font-mono font-semibold">0</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-500">Session State:</span>
+            <span id="drawer-ssh-active-state" class="text-slate-400 font-mono">Idle</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-500">Client IP:</span>
+            <span id="drawer-ssh-client-ip" class="text-slate-200 font-mono truncate">--</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-500">Duration:</span>
+            <span id="drawer-ssh-duration" class="text-slate-200 font-mono truncate">--</span>
+          </div>
+        </div>
+
+        <!-- Last Login & Last Logout Info Cards -->
+        <div class="flex flex-col gap-1.5 pt-1.5 text-[11px] border-t border-slate-800/80">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-slate-500 flex items-center gap-1 shrink-0">📥 Last Login:</span>
+            <span id="drawer-ssh-last-login-info" class="text-slate-300 font-mono text-right truncate ml-2">--</span>
+          </div>
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-slate-500 flex items-center gap-1 shrink-0">📤 Last Logout:</span>
+            <span id="drawer-ssh-last-logout-info" class="text-amber-300/90 font-mono text-right truncate ml-2">--</span>
+          </div>
+        </div>
+
+        <!-- Recent Sessions Mini-Audit Trail (Collapsible & Hidden by Default) -->
+        <details id="drawer-ssh-history-details" class="group pt-1.5 border-t border-slate-800/60">
+          <summary class="flex items-center justify-between cursor-pointer select-none text-[10px] font-semibold text-slate-400 tracking-wide uppercase hover:text-slate-200 transition py-0.5 list-none [&::-webkit-details-marker]:hidden">
+            <span class="flex items-center gap-1.5">
+              <span>Recent Session History</span>
+              <span id="drawer-ssh-history-count" class="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">0</span>
+            </span>
+            <span class="inline-block transform transition-transform duration-200 text-slate-500 text-xs group-open:rotate-90">▶</span>
+          </summary>
+          <div id="drawer-ssh-recent-list" class="flex flex-col gap-1 mt-2">
+            <div class="text-slate-500 italic text-[10px]">No recent session history recorded.</div>
+          </div>
+        </details>
+      </div>
+
+      <!-- ================= POE COOLING FAN CONTROLLER ================= -->
+      <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col gap-3 shadow-lg shadow-black/40">
+        <!-- Header & Live Status -->
+        <div class="flex items-center justify-between">
+          <h4 class="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+            <span class="text-sky-400 text-sm animate-spin-slow">🌀</span> PoE HAT Fan Control
+          </h4>
+          <span id="drawer-fan-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono font-medium flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Idle (Off)
+          </span>
+        </div>
+
+        <!-- Mode Selector (Auto vs Manual Overrides) -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between text-[11px] text-slate-400">
+            <span>Operating Mode:</span>
+            <span id="fan-mode-desc" class="text-slate-300 font-medium">Automatic Thermal Policy</span>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 p-1 bg-slate-950/80 rounded-lg border border-slate-800/80 text-xs">
+            <button id="fan-mode-auto-btn" type="button" class="px-2 py-1.5 rounded-md font-medium text-center transition flex items-center justify-center gap-1 bg-sky-600/30 text-sky-300 border border-sky-500/40 shadow-sm">
+              <span>🌡️</span> Auto
+            </button>
+            <button id="fan-mode-on-btn" type="button" class="px-2 py-1.5 rounded-md font-medium text-center transition flex items-center justify-center gap-1 text-slate-400 hover:text-white border border-transparent hover:bg-slate-800/60">
+              <span>⚡</span> Force ON
+            </button>
+            <button id="fan-mode-off-btn" type="button" class="px-2 py-1.5 rounded-md font-medium text-center transition flex items-center justify-center gap-1 text-slate-400 hover:text-white border border-transparent hover:bg-slate-800/60">
+              <span>🛑</span> Force OFF
+            </button>
+          </div>
+        </div>
+
+        <!-- Target Fan Speed Selector -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between text-[11px] text-slate-400">
+            <span>Running Speed Level:</span>
+            <span id="fan-speed-desc" class="text-slate-300 font-mono font-medium">Level 2 (Balanced)</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1 p-1 bg-slate-950/80 rounded-lg border border-slate-800/80 text-xs">
+            <button id="fan-speed-1-btn" type="button" class="py-1 rounded text-center font-mono text-[11px] text-slate-400 hover:text-white border border-transparent hover:bg-slate-800/60">L1 (Quiet)</button>
+            <button id="fan-speed-2-btn" type="button" class="py-1 rounded text-center font-mono text-[11px] bg-sky-600/30 text-sky-300 border border-sky-500/40 font-semibold shadow-sm">L2 (Med)</button>
+            <button id="fan-speed-3-btn" type="button" class="py-1 rounded text-center font-mono text-[11px] text-slate-400 hover:text-white border border-transparent hover:bg-slate-800/60">L3 (High)</button>
+            <button id="fan-speed-4-btn" type="button" class="py-1 rounded text-center font-mono text-[11px] text-slate-400 hover:text-white border border-transparent hover:bg-slate-800/60">L4 (Max)</button>
+          </div>
+        </div>
+
+        <!-- Temperature Thresholds (Auto Mode Configuration) -->
+        <div id="fan-thresholds-container" class="flex flex-col gap-2.5 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/70 transition-opacity">
+          <!-- Temp ON Slider -->
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-slate-400 flex items-center gap-1">
+                <span class="text-rose-400">🔥</span> Turn Fan ON (Trigger):
+              </span>
+              <span id="fan-temp-on-val" class="font-mono text-rose-400 font-bold text-xs bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">48°C</span>
+            </div>
+            <input id="fan-temp-on-slider" type="range" min="35" max="75" value="48" step="1" class="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+            <div class="flex justify-between text-[9px] text-slate-500 font-mono">
+              <span>35°C</span>
+              <span>55°C</span>
+              <span>75°C</span>
+            </div>
+          </div>
+
+          <!-- Temp OFF Slider -->
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-slate-400 flex items-center gap-1">
+                <span class="text-sky-400">❄️</span> Turn Fan OFF (Hysteresis):
+              </span>
+              <span id="fan-temp-off-val" class="font-mono text-sky-400 font-bold text-xs bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">42°C</span>
+            </div>
+            <input id="fan-temp-off-slider" type="range" min="30" max="70" value="42" step="1" class="w-full accent-sky-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+            <div class="flex justify-between text-[9px] text-slate-500 font-mono">
+              <span>30°C</span>
+              <span>50°C</span>
+              <span>70°C</span>
+            </div>
+          </div>
+
+          <!-- Hysteresis Window Display -->
+          <div class="p-2 rounded bg-slate-900/90 border border-slate-800/80 flex items-center justify-between text-[10px]">
+            <span class="text-slate-400">Deadband Window:</span>
+            <span id="fan-hysteresis-info" class="font-mono text-slate-200">6°C (Off &lt; 42°C &bull; On &gt; 48°C)</span>
+          </div>
+
+          <!-- Quick Presets -->
+          <div class="flex items-center gap-1.5 pt-1">
+            <span class="text-[10px] text-slate-500 shrink-0">Presets:</span>
+            <div class="grid grid-cols-3 gap-1 w-full">
+              <button id="fan-preset-cool" type="button" class="py-1 px-1.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[10px] font-medium border border-slate-700 transition text-center truncate" title="On at 44°C, Off at 38°C">❄️ Cool</button>
+              <button id="fan-preset-balanced" type="button" class="py-1 px-1.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[10px] font-medium border border-slate-700 transition text-center truncate" title="On at 48°C, Off at 42°C">⚖️ Balanced</button>
+              <button id="fan-preset-silent" type="button" class="py-1 px-1.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[10px] font-medium border border-slate-700 transition text-center truncate" title="On at 55°C, Off at 48°C">🤫 Quiet</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Apply Button (Dispatches MQTT Command) -->
+        <button id="fan-apply-btn" type="button" class="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition shadow-lg shadow-sky-950 flex items-center justify-center gap-1.5">
+          <span class="text-sm">⚡</span> Apply Fan Settings (MQTT)
+        </button>
+      </div>
+
+
+      <!-- ================= COMMAND CONTROL PANEL ================= -->
+      <div class="mt-auto border-t border-slate-800/80 pt-4 flex flex-col gap-2.5">
+        <div class="flex items-center justify-between">
+          <h4 class="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+            <span>🎛️</span> Remote Control Actions
+          </h4>
+          <span id="drawer-auth-badge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">Public View (Read-Only)</span>
+        </div>
+
+        <!-- Non-Destructive Actions (Always Available) -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="cmd-identify-btn" class="px-3 py-2 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 font-semibold transition flex items-center justify-center gap-1.5 shadow">
+            <span>💡</span> Identify / Locate
+          </button>
+          <button id="cmd-poll-btn" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold transition flex items-center justify-center gap-1.5">
+            <span>🔄</span> Poll Metrics
+          </button>
+        </div>
+
+        <!-- Destructive Actions (OIDC Login Required) -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="cmd-reboot-btn" class="px-3 py-2 rounded-lg bg-amber-600/10 hover:bg-amber-600/25 border border-amber-500/30 text-amber-300 font-semibold transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+            <span>⚠️</span> Reboot Node
+          </button>
+          <button id="cmd-shutdown-btn" class="px-3 py-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/25 border border-rose-500/30 text-rose-300 font-semibold transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+            <span>🛑</span> Shutdown
+          </button>
+        </div>
+
+        <div id="cmd-auth-hint" class="text-[11px] text-slate-400 text-center">
+          ℹ️ Reboot & Shutdown require <a href="#" id="hint-login-link" class="text-sky-400 underline font-medium">OIDC Admin Login</a>.
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ================= CONFIRMATION MODAL ================= -->
+  <div id="confirm-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="glass-panel max-w-sm w-full rounded-2xl p-6 border border-slate-700 shadow-2xl flex flex-col gap-4">
+      <div class="flex items-center gap-3">
+        <div id="modal-icon" class="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-2xl">
+          ⚠️
+        </div>
+        <div>
+          <h3 id="modal-title" class="font-bold text-white text-base">Confirm Node Action</h3>
+          <p id="modal-desc" class="text-xs text-slate-400">Are you sure you want to proceed?</p>
+        </div>
+      </div>
+      <!-- Action warning box (shown for destructive actions like shutdown) -->
+      <div id="modal-warning-box" class="hidden p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5">
+        <span class="text-rose-400 text-sm leading-none mt-0.5">⚠️</span>
+        <span id="modal-warning-text" class="leading-relaxed font-medium">Warning: The unit will have to be manually switched back on if pressed.</span>
+      </div>
+      <div class="flex items-center justify-end gap-2.5 pt-2">
+        <button id="modal-cancel-btn" class="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+          Cancel
+        </button>
+        <button id="modal-confirm-btn" class="px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-lg transition">
+          Confirm & Execute
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= OIDC SIGN-IN MODAL ================= -->
+  <div id="login-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="glass-panel max-w-sm w-full rounded-2xl p-6 border border-slate-700 shadow-2xl flex flex-col gap-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-white text-base flex items-center gap-2">
+          <span>🔐</span> Admin Authentication
+        </h3>
+        <button id="close-login-modal" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <p class="text-xs text-slate-400">
+        Sign in to unlock privileged cluster controls (Reboot, Shutdown, and Cluster Orchestration).
+      </p>
+
+      <div class="flex flex-col gap-2.5 pt-2">
+        <a href="/auth/login" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-semibold text-xs text-center shadow-lg transition flex items-center justify-center gap-2">
+          <span>🏛️</span> Sign in with OIDC Provider
+        </a>
+        <button id="dev-login-btn" class="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs text-center transition flex items-center justify-center gap-2">
+          <span>👨‍💻</span> Quick Dev Mode Sign-in (Local Test)
+        </button>
+      </div>
+
+      <!-- OIDC Configuration Settings Info -->
+      <div class="mt-1 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] flex flex-col gap-1.5">
+        <div class="text-slate-400 font-medium flex items-center justify-between">
+          <span>OIDC Identity Provider Settings</span>
+          <span id="oidc-status-chip" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">Checking...</span>
+        </div>
+        <div class="text-slate-400">
+          Base URL: <code id="oidc-base-url-display" class="text-sky-300 font-mono select-all">http://localhost:3000</code>
+        </div>
+        <div class="text-slate-400">
+          Redirect URI: <code id="oidc-callback-url-display" class="text-emerald-300 font-mono select-all break-all">http://localhost:3000/auth/callback</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="mt-auto border-t border-slate-800/60 bg-slate-950/60 py-3 text-xs text-slate-500 text-center">
+    PiCloud Digital Twin &bull; UCL Connected Environments &bull; MQTT: <code class="text-slate-400">student/PiCloud/picloud-[1-48]/metrics</code>
+  </footer>
+
+  <!-- Application Logic (ES Module) -->
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
+

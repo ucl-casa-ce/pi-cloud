@@ -1,0 +1,33 @@
+services:
+  picloud-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: picloud-dashboard
+    restart: unless-stopped
+    ports:
+      - "${PORT}:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT}
+      - HOST=${HOST}
+      - OIDC_BASE_URL=${OIDC_BASE_URL}
+      - MQTT_HOST=${MQTT_HOST}
+      - MQTT_PORT=${MQTT_PORT}
+      - MQTT_USER=${MQTT_USER}
+      - MQTT_PASSWORD=${MQTT_PASSWORD}
+      - MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+      - OIDC_CALLBACK_URL=${OIDC_CALLBACK_URL}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - AUTH_DEV_MODE=${AUTH_DEV_MODE}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/auth/me"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

@@ -188,3 +188,11 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+website/.env
+website/.env.local

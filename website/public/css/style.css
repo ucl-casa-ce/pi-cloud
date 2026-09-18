@@ -1,0 +1,202 @@
+/* PiCloud Digital Twin Custom Styles & Animations */
+
+:root {
+  --bg-primary: #0a0d14;
+  --bg-card: rgba(15, 23, 42, 0.75);
+  --border-subtle: rgba(51, 65, 85, 0.5);
+  --accent-cyan: #06b6d4;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: #f8fafc;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism Card */
+.glass-panel {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-panel:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* Glowing Pulsing Status Dots */
+.status-pulse {
+  position: relative;
+}
+
+.status-pulse::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background: inherit;
+  animation: pulse-wave 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  opacity: 0.75;
+}
+
+@keyframes pulse-wave {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* Active Tab Indicator */
+.tab-btn.active {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(99, 102, 241, 0.25));
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+/* 3D Tooltip */
+#twin-tooltip {
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 50;
+}
+
+/* Heatmap Gradient Borders */
+.heat-border-cool {
+  border-left: 4px solid #06b6d4;
+}
+.heat-border-opt {
+  border-left: 4px solid #10b981;
+}
+.heat-border-warm {
+  border-left: 4px solid #f59e0b;
+}
+.heat-border-hot {
+  border-left: 4px solid #ef4444;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.8);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #38bdf8;
+}
+
+/* Glowing Beacon Animation (Blue Identify) */
+@keyframes beacon-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(14, 165, 233, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(14, 165, 233, 0.95);
+  }
+}
+
+.identifying-beacon {
+  animation: beacon-glow 1s infinite ease-in-out;
+  border-color: #0ea5e9 !important;
+}
+
+/* 2D Matrix Status Visuals */
+@keyframes reboot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.98);
+  }
+}
+
+.rebooting-card {
+  animation: reboot-pulse 1.6s infinite ease-in-out;
+  border-color: rgba(245, 158, 11, 0.7) !important;
+  background: rgba(120, 53, 15, 0.25) !important;
+}
+
+.shutdown-card {
+  animation: reboot-pulse 1.6s infinite ease-in-out;
+  border-color: rgba(239, 68, 68, 0.7) !important;
+  background: rgba(127, 29, 29, 0.25) !important;
+}
+
+.offline-card {
+  opacity: 0.6;
+  border-color: rgba(71, 85, 105, 0.5) !important;
+  background: rgba(30, 41, 59, 0.4) !important;
+}
+
+.event-filter-btn.active {
+  background: rgba(14, 165, 233, 0.25) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+}
+
+/* Overall Wall Heatmap Cells */
+.thermal-card-cool {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(6, 182, 212, 0.05)) !important;
+  border-color: rgba(6, 182, 212, 0.45) !important;
+  box-shadow: inset 0 0 16px rgba(6, 182, 212, 0.1);
+}
+.thermal-card-opt {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(16, 185, 129, 0.05)) !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  box-shadow: inset 0 0 16px rgba(16, 185, 129, 0.1);
+}
+.thermal-card-warm {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08)) !important;
+  border-color: rgba(245, 158, 11, 0.6) !important;
+  box-shadow: inset 0 0 20px rgba(245, 158, 11, 0.15);
+}
+.thermal-card-hot {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.28), rgba(239, 68, 68, 0.12)) !important;
+  border-color: rgba(239, 68, 68, 0.8) !important;
+  box-shadow: inset 0 0 24px rgba(239, 68, 68, 0.25), 0 0 15px rgba(239, 68, 68, 0.35);
+}
+.thermal-card-offline {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(51, 65, 85, 0.4) !important;
+  opacity: 0.6;
+}
+
+/* 3D Wall & Shelf Fullscreen Mode */
+#view-container-twin.fullscreen-active,
+#view-container-3d.fullscreen-active {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  z-index: 40 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  margin: 0 !important;
+}
+
+

@@ -8,6 +8,7 @@ import psutil
 import platform
 import threading
 import subprocess
+import re
 from dotenv import load_dotenv
 from paho.mqtt import client as mqtt_client
 
@@ -117,19 +118,190 @@ def get_cpu_freq_mhz():
                 pass
     return 0
 
-def get_poe_fan_state():
-    """Reads PoE HAT fan level (0=off, 1=low, 2=med, 3=high, 4=max)."""
-    for path in [
-        "/sys/class/thermal/cooling_device0/cur_state",
-        "/sys/class/hwmon/hwmon0/pwm1",
-    ]:
+# PoE Fan Configuration and Hardware Control
+FAN_CONFIG_PATHS = [
+    "/opt/picloud-node/fan_config.json",
+    os.path.expanduser("~/.config/picloud/fan_config.json"),
+    "/tmp/picloud_fan_config.json"
+]
+
+fan_config = {
+    "mode": "auto",       # "auto", "on", "off"
+    "temp_on": 48,        # Celsius threshold to activate fan
+    "temp_off": 42,       # Celsius threshold to deactivate fan
+    "speed": 2,           # Desired level when running (1-4)
+    "manual_override": False
+}
+
+def load_fan_config():
+    """Loads saved fan configuration from persistent storage."""
+    global fan_config
+    for path in FAN_CONFIG_PATHS:
         if os.path.exists(path):
             try:
                 with open(path, "r") as f:
-                    return int(f.read().strip())
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        fan_config.update(loaded)
+                        print(f"Loaded PoE fan config from {path}: {fan_config}")
+                        return
+            except Exception as e:
+                print(f"Error reading fan config from {path}: {e}")
+
+def save_fan_config():
+    """Persists active fan configuration to disk."""
+    global fan_config
+    for path in FAN_CONFIG_PATHS:
+        try:
+            parent_dir = os.path.dirname(path)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(fan_config, f, indent=2)
+            return True
+        except Exception:
+            continue
+    return False
+
+def find_poe_cooling_devices():
+    """Locates cooling devices associated with the PoE HAT fan."""
+    devices = []
+    thermal_dir = "/sys/class/thermal"
+    if os.path.exists(thermal_dir):
+        try:
+            for name in os.listdir(thermal_dir):
+                if name.startswith("cooling_device"):
+                    cpath = os.path.join(thermal_dir, name)
+                    type_file = os.path.join(cpath, "type")
+                    dev_type = ""
+                    if os.path.exists(type_file):
+                        try:
+                            with open(type_file, "r") as tf:
+                                dev_type = tf.read().strip().lower()
+                        except Exception:
+                            pass
+                    if "poe" in dev_type or "fan" in dev_type or name == "cooling_device0":
+                        devices.append(cpath)
+        except Exception:
+            pass
+    return devices
+
+def find_poe_pwm_devices():
+    """Locates hardware PWM nodes associated with the PoE HAT fan."""
+    pwm_devs = []
+    hwmon_dir = "/sys/class/hwmon"
+    if os.path.exists(hwmon_dir):
+        try:
+            for name in os.listdir(hwmon_dir):
+                hpath = os.path.join(hwmon_dir, name)
+                pwm_file = os.path.join(hpath, "pwm1")
+                if os.path.exists(pwm_file):
+                    pwm_devs.append(hpath)
+        except Exception:
+            pass
+    return pwm_devs
+
+def get_poe_fan_state():
+    """Reads PoE HAT fan speed level (0=off, 1=low, 2=med, 3=high, 4=max)."""
+    # 1. Thermal cooling devices
+    cooling_devs = find_poe_cooling_devices()
+    for dev in cooling_devs:
+        cur_file = os.path.join(dev, "cur_state")
+        if os.path.exists(cur_file):
+            try:
+                with open(cur_file, "r") as f:
+                    val = int(f.read().strip())
+                    return min(4, max(0, val))
+            except Exception:
+                pass
+
+    # 2. Hardware PWM
+    for hpath in find_poe_pwm_devices():
+        pwm_file = os.path.join(hpath, "pwm1")
+        if os.path.exists(pwm_file):
+            try:
+                with open(pwm_file, "r") as f:
+                    raw = int(f.read().strip())
+                    if raw == 0:
+                        return 0
+                    elif raw <= 75:
+                        return 1
+                    elif raw <= 150:
+                        return 2
+                    elif raw <= 220:
+                        return 3
+                    else:
+                        return 4
             except Exception:
                 pass
     return 0
+
+def set_poe_fan_hardware(level):
+    """Writes target fan speed level (0-4) to kernel cooling devices and PWM nodes."""
+    level = max(0, min(4, int(level)))
+    success = False
+
+    # 1. Set thermal cooling devices
+    for dev in find_poe_cooling_devices():
+        cur_state_file = os.path.join(dev, "cur_state")
+        try:
+            with open(cur_state_file, "w") as f:
+                f.write(str(level))
+            success = True
+        except Exception:
+            pass
+
+    # 2. Set hardware PWM (scale 0-4 to 0-255)
+    pwm_map = [0, 64, 128, 192, 255]
+    pwm_val = pwm_map[level]
+    for hpath in find_poe_pwm_devices():
+        enable_file = os.path.join(hpath, "pwm1_enable")
+        pwm_file = os.path.join(hpath, "pwm1")
+        try:
+            if os.path.exists(enable_file):
+                with open(enable_file, "w") as ef:
+                    # '1' is manual PWM control, '2' is automatic thermal governor
+                    is_manual = (level > 0 or fan_config.get("mode") in ["on", "off"])
+                    ef.write("1" if is_manual else "2")
+            if os.path.exists(pwm_file):
+                with open(pwm_file, "w") as pf:
+                    pf.write(str(pwm_val))
+            success = True
+        except Exception:
+            pass
+
+    return success
+
+def apply_fan_policy(current_temp_c):
+    """Applies active policy (Auto hysteresis vs Manual Override ON/OFF)."""
+    mode = fan_config.get("mode", "auto")
+    speed = max(1, min(4, int(fan_config.get("speed", 2))))
+    temp_on = float(fan_config.get("temp_on", 48))
+    temp_off = float(fan_config.get("temp_off", 42))
+
+    current_state = get_poe_fan_state()
+
+    if mode == "on":
+        # Force fan ON at target speed
+        if current_state != speed:
+            set_poe_fan_hardware(speed)
+    elif mode == "off":
+        # Force fan OFF
+        if current_state != 0:
+            set_poe_fan_hardware(0)
+    else:
+        # Automatic thermal hysteresis
+        if current_temp_c >= temp_on:
+            # Step up fan speed if significantly hot
+            target_speed = min(4, speed + 1) if current_temp_c >= (temp_on + 8) else speed
+            if current_state != target_speed:
+                set_poe_fan_hardware(target_speed)
+        elif current_temp_c <= temp_off:
+            # Drop fan to 0 when cooled down
+            if current_state != 0:
+                set_poe_fan_hardware(0)
+        # In hysteresis window between temp_off and temp_on: maintain current state
+
 
 def get_throttled_info():
     """Extracts hardware under-voltage, throttling, and frequency capping flags via vcgencmd."""
@@ -240,6 +412,215 @@ def identify_node(duration=10):
 
     threading.Thread(target=_blink, daemon=True).start()
 
+def format_human_duration(seconds):
+    """
+    Formats elapsed duration in human-readable style:
+    - < 60s: '<1 min'
+    - 60s - 119s: '1 min'
+    - 2m - 59m: 'X mins'
+    - 1h - 23h: '1 hr 0 mins' / 'X hrs Y mins'
+    - >= 24h: 'X days Y hours Z mins'
+    """
+    total_seconds = max(0, int(seconds)) if seconds is not None else 0
+    if total_seconds < 60:
+        return "<1 min"
+
+    total_mins = total_seconds // 60
+    if total_mins < 60:
+        return "1 min" if total_mins == 1 else f"{total_mins} mins"
+
+    total_hours = total_mins // 60
+    mins_rem = total_mins % 60
+    min_str = "1 min" if mins_rem == 1 else f"{mins_rem} mins"
+
+    if total_hours < 24:
+        hr_str = "1 hr" if total_hours == 1 else f"{total_hours} hrs"
+        return f"{hr_str} {min_str}"
+
+    days = total_hours // 24
+    hours_rem = total_hours % 24
+    day_str = "1 day" if days == 1 else f"{days} days"
+    hr_str = "1 hour" if hours_rem == 1 else f"{hours_rem} hours"
+    return f"{day_str} {hr_str} {min_str}"
+
+def parse_and_format_duration(dur_str):
+    """Parses raw duration from 'last' (e.g. '00:00', '01:25', '1+02:15') and returns human format."""
+    if not dur_str or dur_str in ("N/A", "Active"):
+        return dur_str
+    m_days = re.match(r"^(\d+)\+(\d{1,2}):(\d{2})$", dur_str)
+    if m_days:
+        days, hrs, mins = int(m_days.group(1)), int(m_days.group(2)), int(m_days.group(3))
+        sec = ((days * 24 + hrs) * 60 + mins) * 60
+        return format_human_duration(sec)
+    m_hhmm = re.match(r"^(\d{1,2}):(\d{2})$", dur_str)
+    if m_hhmm:
+        hrs, mins = int(m_hhmm.group(1)), int(m_hhmm.group(2))
+        sec = (hrs * 60 + mins) * 60
+        return format_human_duration(sec)
+    return dur_str
+
+def get_ssh_info():
+    """Extracts active SSH sessions, logged in users, last login details, and logout events."""
+    active_sessions = []
+    active_user_names = []
+
+    # 1. Live active terminal sessions using psutil
+    try:
+        users = psutil.users()
+        for u in users:
+            # Exclusively track active SSH sessions (pseudo-terminals pts/* or non-local remote host)
+            # Filter out console autologins (tty1, tty2, etc.) that run automatically upon boot
+            terminal = u.terminal or ""
+            is_ssh = terminal.startswith("pts") or (u.host and u.host not in ("", "local", ":0") and not terminal.startswith("tty"))
+            if not is_ssh:
+                continue
+
+            started_dt = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(u.started)) if u.started else "N/A"
+            dur_sec = max(0, int(time.time() - u.started)) if u.started else 0
+            dur_str = format_human_duration(dur_sec)
+            active_sessions.append({
+                "user": u.name,
+                "terminal": u.terminal,
+                "host": u.host or "local",
+                "login_time": started_dt,
+                "duration": dur_str,
+                "duration_seconds": dur_sec,
+            })
+            if u.name not in active_user_names:
+                active_user_names.append(u.name)
+    except Exception:
+        pass
+
+    # 2. Historical logins and logout events from 'last'
+    recent_sessions = []
+    last_login = None
+    last_logout = None
+
+    try:
+        raw_text = ""
+        # Try full timestamp format first (-F), fallback to standard last
+        try:
+            res = subprocess.run(["last", "-F", "-n", "20"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout:
+                raw_text = res.stdout
+        except Exception:
+            pass
+
+        if not raw_text:
+            try:
+                res = subprocess.run(["last", "-n", "20"], capture_output=True, text=True, timeout=2)
+                if res.returncode == 0 and res.stdout:
+                    raw_text = res.stdout
+            except Exception:
+                pass
+
+        for line in raw_text.splitlines():
+            line = line.strip()
+            if not line or line.startswith(("reboot", "shutdown", "wtmp", "begins")):
+                continue
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+
+            user = parts[0]
+            tty = parts[1]
+
+            # Only track SSH sessions (pts/*) - ignore console autologin (tty1, etc.) and non-terminal events
+            if not tty.startswith("pts"):
+                continue
+
+            idx = 2
+            client_ip = ""
+            if not re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", parts[2]):
+                client_ip = parts[2]
+                idx = 3
+
+            rest = " ".join(parts[idx:])
+            is_still_in = "still logged in" in line or "still running" in line
+
+            logout_time = None
+            duration = None
+            login_time = rest
+
+            if is_still_in:
+                login_time = rest.replace("still logged in", "").replace("still running", "").strip()
+                logout_time = "Active"
+                duration = "Active"
+            elif " - " in rest:
+                time_parts = rest.split(" - ", 1)
+                login_time = time_parts[0].strip()
+                after_dash = time_parts[1].strip()
+                dur_match = re.search(r"\((.*?)\)", after_dash)
+                if dur_match:
+                    duration = parse_and_format_duration(dur_match.group(1))
+                    logout_time = re.sub(r"\(.*?\)", "", after_dash).strip()
+                else:
+                    logout_time = after_dash
+
+            sess = {
+                "user": user,
+                "terminal": tty,
+                "host": client_ip or "local",
+                "login_time": login_time,
+                "logout_time": logout_time or "N/A",
+                "duration": duration or "N/A",
+                "is_active": is_still_in,
+            }
+            if len(recent_sessions) < 5:
+                recent_sessions.append(sess)
+
+            if not last_login:
+                last_login = {
+                    "user": user,
+                    "host": client_ip or "local",
+                    "terminal": tty,
+                    "time": login_time,
+                }
+
+            if not last_logout and not is_still_in and logout_time and logout_time != "N/A":
+                last_logout = {
+                    "user": user,
+                    "host": client_ip or "local",
+                    "terminal": tty,
+                    "login_time": login_time,
+                    "logout_time": logout_time,
+                    "duration": duration or "N/A",
+                }
+    except Exception:
+        pass
+
+    # If last_login not populated from last, fallback to active session
+    if not last_login and active_sessions:
+        first = active_sessions[0]
+        last_login = {
+            "user": first["user"],
+            "host": first["host"],
+            "terminal": first["terminal"],
+            "time": first["login_time"],
+        }
+
+    # Check ssh daemon status
+    sshd_running = False
+    try:
+        sshd_res = subprocess.run(["systemctl", "is-active", "ssh"], capture_output=True, text=True, timeout=1)
+        sshd_running = (sshd_res.stdout.strip() == "active")
+    except Exception:
+        try:
+            sshd_running = any("sshd" in p.name() for p in psutil.process_iter(["name"]))
+        except Exception:
+            sshd_running = True
+
+    return {
+        "active_users_count": len(active_sessions),
+        "active_users": active_user_names,
+        "primary_user": active_user_names[0] if active_user_names else None,
+        "active_sessions": active_sessions,
+        "last_login": last_login,
+        "last_logout": last_logout,
+        "recent_sessions": recent_sessions,
+        "sshd_running": sshd_running,
+    }
+
 def collect_all_metrics():
     """Gathers all node health, power, network, and workload metrics into a single dictionary."""
     ping_status, ping_ms = get_ping_status()
@@ -254,14 +635,14 @@ def collect_all_metrics():
     rx_kb_s, tx_kb_s = get_network_rates()
     eth_speed = get_eth_speed()
     throttled = get_throttled_info()
+    apply_fan_policy(temp_c)
     fan_state = get_poe_fan_state()
     zram = get_zram_stats()
 
-    # Active logged in sessions (e.g. students on SSH)
-    try:
-        active_users = len([u for u in psutil.users() if u.terminal])
-    except Exception:
-        active_users = 0
+    # Active logged in sessions and SSH stats
+    ssh_info = get_ssh_info()
+    active_users = ssh_info["active_users_count"]
+    logged_in_user = ssh_info["primary_user"]
 
     uptime_sec = int(time.time() - psutil.boot_time())
 
@@ -274,6 +655,8 @@ def collect_all_metrics():
         "ip": ip_addr,
         "uptime_seconds": uptime_sec,
         "active_users": active_users,
+        "logged_in_user": logged_in_user,
+        "ssh": ssh_info,
         "temp_c": temp_c,
         "cpu_percent": cpu_percent,
         "cpu_freq_mhz": cpu_freq_mhz,
@@ -297,6 +680,14 @@ def collect_all_metrics():
             "throttled": throttled,
             "fan_state": fan_state,
             "cumulative_energy_wh": energy_wh,
+            "fan": {
+                "state": fan_state,
+                "mode": fan_config.get("mode", "auto"),
+                "temp_on": fan_config.get("temp_on", 48),
+                "temp_off": fan_config.get("temp_off", 42),
+                "speed": fan_config.get("speed", 2),
+                "manual_override": (fan_config.get("mode") in ["on", "off"]),
+            },
         },
         "heartbeat": time.strftime("%H:%M:%S"),
         "heartbeat_ms": int(time.time() * 1e6),
@@ -328,6 +719,18 @@ def send_all_metrics(client, target_topic=None):
     client.publish(f"{NODE_TOPIC_PREFIX}/eth_speed_mbps", str(metrics["network"]["eth_speed_mbps"]))
     client.publish(f"{NODE_TOPIC_PREFIX}/throttled_hex", metrics["power_and_hardware"]["throttled"]["hex"])
     client.publish(f"{NODE_TOPIC_PREFIX}/energy_wh", str(metrics["power_and_hardware"]["cumulative_energy_wh"]))
+    client.publish(f"{NODE_TOPIC_PREFIX}/active_users", str(metrics["active_users"]))
+    if metrics.get("logged_in_user"):
+        client.publish(f"{NODE_TOPIC_PREFIX}/logged_in_user", str(metrics["logged_in_user"]), 0, True)
+    if metrics.get("ssh", {}).get("last_login"):
+        ll = metrics["ssh"]["last_login"]
+        client.publish(f"{NODE_TOPIC_PREFIX}/ssh/last_login_user", str(ll.get("user", "")), 0, True)
+        client.publish(f"{NODE_TOPIC_PREFIX}/ssh/last_login_time", str(ll.get("time", "")), 0, True)
+    if metrics.get("ssh", {}).get("last_logout"):
+        lo = metrics["ssh"]["last_logout"]
+        client.publish(f"{NODE_TOPIC_PREFIX}/ssh/last_logout_user", str(lo.get("user", "")), 0, True)
+        client.publish(f"{NODE_TOPIC_PREFIX}/ssh/last_logout_time", str(lo.get("logout_time", "")), 0, True)
+        client.publish(f"{NODE_TOPIC_PREFIX}/ssh/last_logout_duration", str(lo.get("duration", "")), 0, True)
 
     if "poe" in metrics:
         poe = metrics["poe"]
@@ -401,6 +804,55 @@ def connect_mqtt():
             print(f"Triggering physical node identification (blinking ACT LED for {duration}s)...")
             identify_node(duration=duration)
             client.publish(f"{NODE_TOPIC_PREFIX}/cmd/response", json.dumps({"action": "identify", "status": "blinking", "duration": duration}))
+        elif cmd == "fan":
+            # Command payload: {"cmd": "fan", "mode": "on"|"off"|"auto", "temp_on": 48, "temp_off": 42, "speed": 2}
+            mode_val = str(cmd_data.get("mode", fan_config.get("mode", "auto"))).lower()
+            if mode_val in ["auto", "on", "off"]:
+                fan_config["mode"] = mode_val
+
+            if "temp_on" in cmd_data:
+                try:
+                    fan_config["temp_on"] = int(cmd_data["temp_on"])
+                except (ValueError, TypeError):
+                    pass
+
+            if "temp_off" in cmd_data:
+                try:
+                    fan_config["temp_off"] = int(cmd_data["temp_off"])
+                except (ValueError, TypeError):
+                    pass
+
+            if "speed" in cmd_data:
+                try:
+                    fan_config["speed"] = max(1, min(4, int(cmd_data["speed"])))
+                except (ValueError, TypeError):
+                    pass
+
+            fan_config["manual_override"] = (fan_config["mode"] in ["on", "off"])
+            save_fan_config()
+
+            # Immediately enforce the new fan settings
+            cur_temp = get_cpu_temp()
+            apply_fan_policy(cur_temp)
+            current_fan_level = get_poe_fan_state()
+
+            print(f"Applied PoE fan settings: mode={fan_config['mode']}, temp_on={fan_config['temp_on']}, temp_off={fan_config['temp_off']}, speed={fan_config['speed']}, state={current_fan_level}")
+
+            resp_payload = {
+                "action": "fan",
+                "status": "applied",
+                "fan": {
+                    "mode": fan_config["mode"],
+                    "temp_on": fan_config["temp_on"],
+                    "temp_off": fan_config["temp_off"],
+                    "speed": fan_config["speed"],
+                    "state": current_fan_level,
+                    "manual_override": fan_config["manual_override"]
+                }
+            }
+            client.publish(f"{NODE_TOPIC_PREFIX}/cmd/response", json.dumps(resp_payload))
+            # Publish updated telemetry immediately
+            send_all_metrics(client)
         elif cmd == "reboot":
             print("Received reboot message, rebooting...")
             subprocess.call(["shutdown", "-r", "now"])
@@ -432,6 +884,7 @@ def publish(client):
         time.sleep(5)
 
 def run():
+    load_fan_config()
     client = connect_mqtt()
     client.loop_start()
     publish(client)
