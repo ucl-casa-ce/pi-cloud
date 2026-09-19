@@ -1,0 +1,9 @@
+.git
+.github
+ansible
+scripts
+website/node_modules
+.env
+.env.local
+.DS_Store
+

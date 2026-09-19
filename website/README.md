@@ -54,11 +54,16 @@ Built with **Node.js, Express, WebSockets, Three.js, Tailwind CSS, and OpenID Co
 
 ### Option A: Running with Docker Compose (Recommended)
 
-Run the dashboard directly in a production-ready container:
+Run the dashboard using the published container image (`ghcr.io/ucl-casa-ce/picloud:latest`):
 
 ```bash
 cd website
 docker compose up -d
+```
+
+To build locally from source instead of pulling from GHCR:
+```bash
+docker compose up -d --build
 ```
 
 To stop the dashboard:

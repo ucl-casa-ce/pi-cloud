@@ -1,18 +1,19 @@
 services:
   picloud-dashboard:
+    image: ghcr.io/ucl-casa-ce/picloud:latest
     build:
       context: .
       dockerfile: Dockerfile
     container_name: picloud-dashboard
     restart: unless-stopped
     ports:
-      - "${PORT}:3000"
+      - "${PORT:-3000}:3000"
     env_file:
       - .env
     environment:
       - NODE_ENV=production
-      - PORT=${PORT}
-      - HOST=${HOST}
+      - PORT=${PORT:-3000}
+      - HOST=${HOST:-0.0.0.0}
       - OIDC_BASE_URL=${OIDC_BASE_URL}
       - MQTT_HOST=${MQTT_HOST}
       - MQTT_PORT=${MQTT_PORT}
