@@ -108,7 +108,6 @@
             <div class="hidden sm:block text-left min-w-0">
               <div id="user-name" class="text-xs font-semibold text-white leading-tight truncate max-w-[140px]">Admin</div>
               <div id="user-email" class="text-[10px] text-slate-400 truncate max-w-[140px] leading-none mt-0.5"></div>
-              <div id="user-role" class="text-[10px] text-emerald-400 leading-none mt-0.5">Unlocked 🔓</div>
             </div>
             <button id="logout-btn" title="Sign Out" class="ml-1 p-1 text-slate-400 hover:text-rose-400 text-xs transition shrink-0">
               🚪
@@ -275,16 +274,6 @@
     <div id="view-container-twin" class="relative w-full h-[600px] rounded-2xl overflow-hidden glass-panel border border-slate-800 shadow-2xl">
       <div id="wall-canvas-container" class="w-full h-full"></div>
 
-      <!-- Wall Twin HUD & GPU Badge (Top-Left) -->
-      <div class="absolute top-3 left-3 flex items-center gap-2 pointer-events-auto">
-        <div id="wall-gpu-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-lg backdrop-blur">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ⚡ WebGPU
-        </div>
-        <div class="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-slate-900/85 text-slate-300 border border-slate-800 backdrop-blur shadow-lg flex items-center gap-1">
-          <span>🏛️</span> Physical Mounting Wall
-        </div>
-      </div>
-
       <!-- Wall Twin Controls Legend (Bottom-Left) -->
       <div class="absolute bottom-3 left-3 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-400 flex items-center gap-3 shadow-lg">
         <span>🖱️ Orbit: Drag &bull; Zoom: Scroll &bull; Click Pi: Inspect & PoE Fan Control</span>
@@ -376,7 +365,7 @@
               </span>
             </div>
             <p class="text-xs text-slate-400">
-              Spatial temperature distribution across all 48 nodes organized by physical shelf (Shelf 6 Top &rarr; Shelf 1 Bottom).
+              Spatial temperature distribution across all 48 nodes organized by physical shelf.
             </p>
           </div>
           
@@ -764,11 +753,10 @@
 
       <!-- ================= COMMAND CONTROL PANEL ================= -->
       <div class="mt-auto border-t border-slate-800/80 pt-4 flex flex-col gap-2.5">
-        <div class="flex items-center justify-between">
+        <div>
           <h4 class="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
             <span>🎛️</span> Remote Control Actions
           </h4>
-          <span id="drawer-auth-badge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">Public View (Read-Only)</span>
         </div>
 
         <!-- Non-Destructive Actions (Always Available) -->
@@ -789,10 +777,6 @@
           <button id="cmd-shutdown-btn" class="px-3 py-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/25 border border-rose-500/30 text-rose-300 font-semibold transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
             <span>🛑</span> Shutdown
           </button>
-        </div>
-
-        <div id="cmd-auth-hint" class="text-[11px] text-slate-400 text-center">
-          ℹ️ Reboot & Shutdown require <a href="#" id="hint-login-link" class="text-sky-400 underline font-medium">OIDC Admin Login</a>.
         </div>
       </div>
 
@@ -842,32 +826,21 @@
 
       <div class="flex flex-col gap-2.5 pt-2">
         <a href="/auth/login" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-semibold text-xs text-center shadow-lg transition flex items-center justify-center gap-2">
-          <span>🏛️</span> Sign in with OIDC Provider
+          <span>🏛️</span> <span id="oidc-login-label">Sign in with OIDC Provider</span>
         </a>
         <button id="dev-login-btn" class="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs text-center transition flex items-center justify-center gap-2">
           <span>👨‍💻</span> Quick Dev Mode Sign-in (Local Test)
         </button>
-      </div>
-
-      <!-- OIDC Configuration Settings Info -->
-      <div class="mt-1 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] flex flex-col gap-1.5">
-        <div class="text-slate-400 font-medium flex items-center justify-between">
-          <span>OIDC Identity Provider Settings</span>
-          <span id="oidc-status-chip" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">Checking...</span>
-        </div>
-        <div class="text-slate-400">
-          Base URL: <code id="oidc-base-url-display" class="text-sky-300 font-mono select-all">http://localhost:3000</code>
-        </div>
-        <div class="text-slate-400">
-          Redirect URI: <code id="oidc-callback-url-display" class="text-emerald-300 font-mono select-all break-all">http://localhost:3000/auth/callback</code>
-        </div>
+        <button id="login-cancel-btn" type="button" class="w-full py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs text-center transition">
+          Cancel
+        </button>
       </div>
     </div>
   </div>
 
   <!-- ================= FOOTER ================= -->
   <footer class="mt-auto border-t border-slate-800/60 bg-slate-950/60 py-3 text-xs text-slate-500 text-center">
-    PiCloud Digital Twin &bull; UCL Connected Environments &bull; MQTT: <code class="text-slate-400">student/PiCloud/picloud-[1-48]/metrics</code>
+    PiCloud Digital Twin &bull; UCL Connected Environments &bull; MQTT: <code class="text-slate-400">student/PiCloud/picloud-[1-48]/metrics</code> &bull; <a href="/kiosk" class="text-sky-400 hover:text-sky-300 transition font-medium">📺 Kiosk Mode</a>
   </footer>
 
   <!-- Application Logic (ES Module) -->

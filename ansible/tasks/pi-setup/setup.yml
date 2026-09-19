@@ -43,7 +43,17 @@
           - screen
           - ufw
           - podman
+          - podman-compose
           - btop
+
+    - name: Install wtmpdb session history tools (Debian 13 / Trixie)
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - wtmpdb
+          - libpam-wtmpdb
+      when: ansible_distribution_major_version | int >= 13
+      ignore_errors: true
 
     # - name: Enable Byobu at Login (as user pi)
     #   become: true
@@ -77,9 +87,10 @@
     - name: Enable SPI
       ansible.builtin.shell: "raspi-config nonint do_spi 0"
 
-    - name: Enable Camera
+    - name: Enable Camera (Legacy camera stack, Bookworm and earlier)
       ansible.builtin.shell: "raspi-config nonint do_camera 0"
       failed_when: false
+      when: ansible_distribution_major_version | int <= 12
 
     - name: Enable VNC
       ansible.builtin.shell: "raspi-config nonint do_vnc 0"
@@ -131,8 +142,10 @@
     - name: Enable OneWire
       ansible.builtin.shell: "raspi-config nonint do_onewire 0"
 
-    - name: Enable Remote GPIO
+    - name: Enable Remote GPIO (Debian 12 / Bookworm and earlier)
       ansible.builtin.shell: "raspi-config nonint do_rgpio 0"
+      failed_when: false
+      when: ansible_distribution_major_version | int <= 12
 
     - name: Remove uncoordinated 5am cron upgrade (managed via upgrade.yml)
       become: true
@@ -300,7 +313,8 @@
                 "type": "localip",
                 "key": "IP Address",
                 "showLoopback": false,
-                "showIpv6": false
+                "showIpv6": false,
+                "showPrefixLen": false
               }
             ]
           }

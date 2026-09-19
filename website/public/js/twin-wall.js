@@ -417,33 +417,55 @@ export class PiCloudWallTwin {
     mqttCoreMesh.position.set(0, -0.0059, 0);
     group.add(mqttCoreMesh);
 
-    // 9. Tactical Locator Reticle (Raised above fan)
-    const reticleGeom = new THREE.RingGeometry(0.028, 0.033, 32);
+    // 9. Tactical Locator Reticle (Raised above fan, enlarged diameter)
+    const reticleGeom = new THREE.RingGeometry(0.038, 0.046, 48);
     const reticleMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
     });
     const reticleMesh = new THREE.Mesh(reticleGeom, reticleMat);
     reticleMesh.rotation.x = -Math.PI / 2;
-    reticleMesh.position.set(0, 0.028, 0);
+    reticleMesh.position.set(0, 0.030, 0);
+    reticleMesh.visible = false;
     group.add(reticleMesh);
 
-    // 10. Reboot (Amber) / Shutdown (Red) Ring
-    const rebootGeom = new THREE.TorusGeometry(0.022, 0.0018, 8, 24);
+    // 10. Reboot (Amber) Orbital Spinner Arc (enlarged arc with open notch so spin is clearly visible)
+    const rebootGeom = new THREE.RingGeometry(0.038, 0.046, 48, 1, 0, Math.PI * 1.55);
     const rebootMat = new THREE.MeshBasicMaterial({
       color: 0xf59e0b,
       transparent: true,
-      opacity: 0
+      opacity: 0,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
     });
     const rebootSpinner = new THREE.Mesh(rebootGeom, rebootMat);
-    rebootSpinner.rotation.x = Math.PI / 2;
-    rebootSpinner.position.set(0, 0.028, 0);
+    rebootSpinner.rotation.x = -Math.PI / 2;
+    rebootSpinner.position.set(0, 0.030, 0);
+    rebootSpinner.visible = false;
     group.add(rebootSpinner);
 
-    // 11. Node Label Sprite
+    // 11. Shutdown (Red) Orbital Spinner Arc (enlarged arc with open notch so spin is clearly visible)
+    const shutdownGeom = new THREE.RingGeometry(0.038, 0.046, 48, 1, 0, Math.PI * 1.55);
+    const shutdownMat = new THREE.MeshBasicMaterial({
+      color: 0xef4444,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const shutdownRing = new THREE.Mesh(shutdownGeom, shutdownMat);
+    shutdownRing.rotation.x = -Math.PI / 2;
+    shutdownRing.position.set(0, 0.030, 0);
+    shutdownRing.visible = false;
+    group.add(shutdownRing);
+
+    // 12. Node Label Sprite
     const labelSprite = this.createNodeLabel(hostname);
     labelSprite.position.set(0, 0.034, 0);
     group.add(labelSprite);
@@ -461,7 +483,10 @@ export class PiCloudWallTwin {
       reticleMesh,
       rebootSpinner,
       rebootMat,
+      shutdownRing,
+      shutdownMat,
       labelSprite,
+      identifyingUntil: 0,
       data: null,
       lastStatus: 'offline'
     });
@@ -691,6 +716,20 @@ export class PiCloudWallTwin {
     const pcb = item.pcbMesh;
     if (!pcb) return;
 
+    if (data.status === 'rebooting') {
+      pcb.material.color.setHex(0x78350f);
+      pcb.material.emissive.setHex(0xf59e0b);
+      pcb.material.emissiveIntensity = 0.35;
+      return;
+    }
+
+    if (data.status === 'shutdown') {
+      pcb.material.color.setHex(0x7f1d1d);
+      pcb.material.emissive.setHex(0xef4444);
+      pcb.material.emissiveIntensity = 0.35;
+      return;
+    }
+
     if (data.status !== 'online' && data.status !== 'warning') {
       pcb.material.color.setHex(0x334155);
       pcb.material.emissive.setHex(0x0f172a);
@@ -762,6 +801,24 @@ export class PiCloudWallTwin {
     this.setCameraPreset('front', true);
   }
 
+  triggerIdentify(hostname, durationSeconds = 10) {
+    const expiresAt = Date.now() + durationSeconds * 1000;
+    const targetHostnames = hostname === 'all'
+      ? Array.from(this.piMeshes.keys())
+      : [hostname];
+
+    targetHostnames.forEach((h) => {
+      const item = this.piMeshes.get(h);
+      if (item) {
+        item.identifyingUntil = expiresAt;
+        if (item.reticleMesh) {
+          item.reticleMesh.visible = true;
+          item.reticleMesh.material.opacity = 0.9;
+        }
+      }
+    });
+  }
+
   animate() {
     requestAnimationFrame(() => this.animate());
  
@@ -791,12 +848,13 @@ export class PiCloudWallTwin {
 
       // 2. Activity LED Dynamic Blinking
       if (data?.status === 'online') {
+        item.actLed.material.color.setHex(0x22c55e);
         const rx = data.network?.rx_kb_s || 0;
         const tx = data.network?.tx_kb_s || 0;
         const netActivity = Math.min(10, Math.floor((rx + tx) / 5));
         const blinkRate = 2.0 + netActivity * 1.5;
         item.actLed.visible = Math.sin(elapsed * blinkRate * Math.PI) > 0;
-      } else {
+      } else if (data?.status !== 'rebooting' && data?.status !== 'shutdown') {
         item.actLed.visible = false;
       }
 
@@ -812,24 +870,40 @@ export class PiCloudWallTwin {
       }
 
       // 4. Identify Reticle Animation
-      const isIdentifying = data?.identifying_until && Date.now() < data.identifying_until;
+      const identifyExpiry = item.identifyingUntil || (data?.identifying_until && Date.now() < data.identifying_until ? data.identifying_until : 0);
+      const isIdentifying = identifyExpiry > 0 && Date.now() < identifyExpiry;
       if (isIdentifying) {
+        item.reticleMesh.visible = true;
         item.reticleMesh.material.opacity = 0.5 + Math.sin(elapsed * 12.0) * 0.45;
         item.reticleMesh.rotation.z += delta * 3.5;
       } else {
+        item.identifyingUntil = 0;
+        item.reticleMesh.visible = false;
         item.reticleMesh.material.opacity = 0;
       }
 
-      // 5. Reboot / Shutdown Rings
+      // 5. Reboot Spinner Animation (Amber open arc, visibly spins)
       if (data?.status === 'rebooting') {
-        item.rebootMat.color.setHex(0xf59e0b); // Orange
-        item.rebootMat.opacity = 0.85;
-        item.rebootSpinner.rotation.z += delta * 6.0;
-      } else if (data?.status === 'shutdown') {
-        item.rebootMat.color.setHex(0xef4444); // Red
-        item.rebootMat.opacity = 0.5 + Math.sin(elapsed * 4.0) * 0.4;
+        item.rebootSpinner.visible = true;
+        item.rebootMat.opacity = 0.9;
+        item.rebootSpinner.rotation.z -= delta * 6.0;
+        item.actLed.visible = Math.sin(elapsed * 8.0) > 0;
+        item.actLed.material.color.setHex(0xf59e0b);
       } else {
+        item.rebootSpinner.visible = false;
         item.rebootMat.opacity = 0;
+      }
+
+      // 6. Shutdown Spinner Animation (Red open arc, visibly spins like reboot)
+      if (data?.status === 'shutdown') {
+        item.shutdownRing.visible = true;
+        item.shutdownMat.opacity = 0.9;
+        item.shutdownRing.rotation.z -= delta * 6.0;
+        item.actLed.visible = Math.sin(elapsed * 8.0) > 0;
+        item.actLed.material.color.setHex(0xef4444);
+      } else {
+        item.shutdownRing.visible = false;
+        item.shutdownMat.opacity = 0;
       }
     });
 

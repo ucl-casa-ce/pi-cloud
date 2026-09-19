@@ -827,6 +827,18 @@ export class PiCloudTwin3D {
     gsapFly(this.controls.target, { x: 0, y: 5.5, z: 0 }, 1.0);
   }
 
+  triggerIdentify(hostname, durationSeconds = 10) {
+    const expiresAt = Date.now() + durationSeconds * 1000;
+    const targets = hostname === 'all' ? Array.from(this.piMeshes.keys()) : [hostname];
+    targets.forEach((h) => {
+      const nodeObj = this.piMeshes.get(h);
+      if (nodeObj) {
+        if (!nodeObj.data) nodeObj.data = {};
+        nodeObj.data.identifying_until = expiresAt;
+      }
+    });
+  }
+
   onWindowResize() {
     if (!this.container || !this.renderer || !this.camera) return;
     const w = this.container.clientWidth;

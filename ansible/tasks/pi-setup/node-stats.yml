@@ -13,6 +13,15 @@
           - python3-psutil
           - python3-dotenv
           - supervisor
+
+    - name: Install wtmpdb session history tools (Debian 13 / Trixie)
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - wtmpdb
+          - libpam-wtmpdb
+      when: ansible_distribution_major_version | int >= 13
+      ignore_errors: true
   
     - name: Copy Scripts to the PiCloud Node
       become: true

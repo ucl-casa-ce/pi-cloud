@@ -30,11 +30,42 @@ class PiCloudApp {
       temp_off: 42
     };
 
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('modal') === 'login') {
+      document.getElementById('login-modal')?.classList.remove('hidden');
+    }
+
     this.init();
   }
 
   async init() {
-    // 1. Initialize Physical 3D Mounting Wall Digital Twin (Landing screen before Shelf)
+    // 1. Setup Auth & check Auth status immediately
+    this.setupAuthHandlers();
+    await this.checkAuthStatus();
+
+    // 2. Setup View Switcher Tabs & Controls
+    this.setupViewTabs();
+    this.setupCameraPresets();
+    this.setupShadingModes();
+    this.setupFullscreen();
+
+    // 3. Setup Drawer, Command, Fan & Modal Handlers
+    this.setupDrawerHandlers();
+    this.setupCommandHandlers();
+    this.setupFanControls();
+    this.setupEventLogHandlers();
+
+    // 4. Initialize Real-Time Charts & Search Filter
+    this.initCharts();
+    const searchInput = document.getElementById('search-nodes');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => this.render2DMatrix());
+    }
+
+    // 5. Connect to Real-Time WebSocket Server
+    this.connectWebSocket();
+
+    // 6. Initialize Physical 3D Mounting Wall Digital Twin
     const wallContainer = document.getElementById('wall-canvas-container');
     if (wallContainer) {
       this.wallTwin = new PiCloudWallTwin('wall-canvas-container', {
@@ -44,7 +75,7 @@ class PiCloudApp {
       });
     }
 
-    // 2. Initialize 3D Shelf Canvas
+    // 7. Initialize 3D Shelf Canvas
     const canvasContainer = document.getElementById('twin-canvas-container');
     if (canvasContainer) {
       this.twin3d = new PiCloudTwin3D(canvasContainer, (nodeData) => {
@@ -52,34 +83,13 @@ class PiCloudApp {
       });
     }
 
-    // 2. Fetch current Auth status
-    await this.checkAuthStatus();
-
-    // 3. Connect to Real-Time WebSocket Server
-    this.connectWebSocket();
-
-    // 4. Setup View Switcher Tabs & Controls
-    this.setupViewTabs();
-    this.setupCameraPresets();
-    this.setupShadingModes();
-    this.setupFullscreen();
-
-    // 5. Setup Drawer, Command, Fan & Modal Handlers
-    this.setupDrawerHandlers();
-    this.setupCommandHandlers();
-    this.setupFanControls();
-    this.setupAuthHandlers();
-
-    // 6. Setup Event Log Handlers
-    this.setupEventLogHandlers();
-
-    // 7. Initialize Real-Time Charts
-    this.initCharts();
-
-    // 8. Setup 2D Search Filter
-    const searchInput = document.getElementById('search-nodes');
-    if (searchInput) {
-      searchInput.addEventListener('input', () => this.render2DMatrix());
+    // Deep-link query parameters support (?modal=login, ?drawer=picloud-X)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('modal') === 'login') {
+      this.openLoginModal();
+    }
+    if (params.get('drawer')) {
+      setTimeout(() => this.openDrawer(params.get('drawer')), 300);
     }
   }
 
@@ -134,6 +144,17 @@ class PiCloudApp {
       this.updateShadingHud(this.twin3d?.colorMode || 'off');
       if (!document.getElementById('view-container-heatmap')?.classList.contains('hidden')) {
         this.renderWallHeatmap();
+      }
+
+      const drawerParam = new URLSearchParams(window.location.search).get('drawer');
+      if (drawerParam && this.nodes[drawerParam]) {
+        this.openDrawer(drawerParam);
+        if (new URLSearchParams(window.location.search).get('scroll') === 'bottom') {
+          setTimeout(() => {
+            const drawerBody = document.querySelector('#node-drawer .overflow-y-auto') || document.getElementById('node-drawer');
+            if (drawerBody) drawerBody.scrollTop = drawerBody.scrollHeight;
+          }, 100);
+        }
       }
     } else if (msg.type === 'NODE_UPDATE') {
       if (msg.hostname && msg.data) {
@@ -193,11 +214,26 @@ class PiCloudApp {
         this.renderEventLog();
       }
     } else if (msg.type === 'IDENTIFY_TRIGGER') {
-      // Highlight on 2D Card
-      const card = document.getElementById(`card-${msg.hostname}`);
-      if (card) {
-        card.classList.add('identifying-beacon');
-        setTimeout(() => card.classList.remove('identifying-beacon'), (msg.duration || 10) * 1000);
+      const dur = parseInt(msg.duration, 10) || 10;
+      const targets = msg.hostname === 'all' ? Object.keys(this.nodes) : [msg.hostname];
+      targets.forEach((h) => {
+        // Highlight on 2D Card
+        const card = document.getElementById(`card-${h}`);
+        if (card) {
+          card.classList.add('identifying-beacon');
+          setTimeout(() => card.classList.remove('identifying-beacon'), dur * 1000);
+        }
+        if (this.nodes[h]) {
+          this.nodes[h].identifying_until = msg.expiresAt || (Date.now() + dur * 1000);
+        }
+      });
+      // Trigger locator reticle on 3D Wall Twin
+      if (this.wallTwin?.triggerIdentify) {
+        this.wallTwin.triggerIdentify(msg.hostname, dur);
+      }
+      // Trigger strobe on 3D Shelf Twin
+      if (this.twin3d?.triggerIdentify) {
+        this.twin3d.triggerIdentify(msg.hostname, dur);
       }
     }
   }
@@ -882,6 +918,7 @@ class PiCloudApp {
     }
 
     this.updateDrawerContent(node);
+    this.updateDrawerInteractiveState(node);
     document.getElementById('node-drawer')?.classList.remove('translate-x-full');
 
     // Also focus camera in 3D
@@ -1064,21 +1101,26 @@ class PiCloudApp {
       setText('drawer-ssh-duration', '--');
     }
 
-    // Recent Sessions History List (Collapsible) - strictly filter to SSH pseudo-terminals (pts/*)
-    const recent = (ssh.recent_sessions || []).filter((s) => {
+    // Helper to test if a terminal or session represents remote SSH (accept pts, ssh, or remote host)
+    const isSshSession = (s) => {
+      if (!s) return false;
       const term = s.terminal || '';
-      return term.startsWith('pts');
-    });
+      return term.startsWith('pts') || term.includes('ssh') || term === 'ssh' || (s.host && s.host !== 'local' && !term.startsWith('tty'));
+    };
+
+    // Recent Sessions History List (Collapsible) - filter to genuine SSH sessions
+    const recent = (ssh.recent_sessions || []).filter(isSshSession);
     setText('drawer-ssh-history-count', `${recent.length}`);
 
     // Last Login Details (ignore local tty consoles)
-    const lastLogin = (ssh.last_login && ssh.last_login.terminal?.startsWith('pts'))
+    const lastLogin = (ssh.last_login && isSshSession(ssh.last_login))
       ? ssh.last_login
       : (recent.length > 0 ? recent[0] : null);
 
     if (lastLogin) {
       const hostPart = lastLogin.host && lastLogin.host !== 'local' ? `${lastLogin.host} · ` : '';
-      const loginStr = `${hostPart}${lastLogin.time || lastLogin.login_time || '--'}`;
+      const rawTime = (lastLogin.time || lastLogin.login_time || '--').replace(/\s*-\s*$/, '').trim();
+      const loginStr = `${hostPart}${rawTime}`;
       setText('drawer-ssh-last-login-info', loginStr);
       const el = document.getElementById('drawer-ssh-last-login-info');
       if (el) el.title = loginStr;
@@ -1087,13 +1129,14 @@ class PiCloudApp {
     }
 
     // Last Logout / Session Closed Event (ignore local tty consoles)
-    const lastLogout = (ssh.last_logout && ssh.last_logout.terminal?.startsWith('pts'))
+    const lastLogout = (ssh.last_logout && (isSshSession(ssh.last_logout) || ssh.last_logout.logout_time))
       ? ssh.last_logout
       : (recent.find((s) => !s.is_active) || null);
 
     if (lastLogout) {
       const formattedDur = this.parseAndFormatDuration(lastLogout.duration);
-      const logoutStr = `${lastLogout.logout_time || '--'} (${formattedDur || '--'})`;
+      const rawLogoutTime = (lastLogout.logout_time || '--').replace(/\s*-\s*$/, '').trim();
+      const logoutStr = `${rawLogoutTime} (${formattedDur || '--'})`;
       setText('drawer-ssh-last-logout-info', logoutStr);
       const el = document.getElementById('drawer-ssh-last-logout-info');
       if (el) el.title = logoutStr;
@@ -1318,13 +1361,16 @@ class PiCloudApp {
       const curT = node?.temp_c ? ` • Current: ${node.temp_c}°C` : '';
       hystInfo.textContent = `${diff}°C deadband (Off ≤ ${tempOff}°C • On ≥ ${tempOn}°C${curT})`;
     }
+
+    this.updateDrawerInteractiveState(node);
   }
 
   async setFanMode(m) {
     if (!this.selectedHostname) return;
+    const node = this.nodes[this.selectedHostname];
+    if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
     this.fanDrawerState.mode = m;
 
-    const node = this.nodes[this.selectedHostname];
     if (node) {
       if (!node.power_and_hardware) node.power_and_hardware = {};
       if (!node.power_and_hardware.fan) node.power_and_hardware.fan = {};
@@ -1352,6 +1398,9 @@ class PiCloudApp {
   }
 
   setFanSpeedLevel(s) {
+    if (!this.selectedHostname) return;
+    const node = this.nodes[this.selectedHostname];
+    if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
     this.fanDrawerState.speed = s;
 
     // Adjust sliders according to selected speed level profile
@@ -1372,14 +1421,14 @@ class PiCloudApp {
 
   async applyFanSettings() {
     if (!this.selectedHostname) return;
+    const node = this.nodes[this.selectedHostname];
+    if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
     const applyBtn = document.getElementById('fan-apply-btn');
     const originalHtml = applyBtn ? applyBtn.innerHTML : '';
     if (applyBtn) {
       applyBtn.innerHTML = '<span>⏳</span> Sending MQTT Command...';
       applyBtn.disabled = true;
     }
-
-    const node = this.nodes[this.selectedHostname];
     if (node) {
       if (!node.power_and_hardware) node.power_and_hardware = {};
       if (!node.power_and_hardware.fan) node.power_and_hardware.fan = {};
@@ -1485,12 +1534,16 @@ class PiCloudApp {
     // 1. Identify / Locate (Public or Auth)
     document.getElementById('cmd-identify-btn')?.addEventListener('click', () => {
       if (!this.selectedHostname) return;
+      const node = this.nodes[this.selectedHostname];
+      if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
       this.sendNodeCommand(this.selectedHostname, 'identify', { duration: 10 });
     });
 
     // 2. Poll Metrics (Public or Auth)
     document.getElementById('cmd-poll-btn')?.addEventListener('click', () => {
       if (!this.selectedHostname) return;
+      const node = this.nodes[this.selectedHostname];
+      if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
       this.sendNodeCommand(this.selectedHostname, 'metrics');
     });
 
@@ -1502,6 +1555,8 @@ class PiCloudApp {
     // 4. Reboot (Protected)
     document.getElementById('cmd-reboot-btn')?.addEventListener('click', () => {
       if (!this.selectedHostname) return;
+      const node = this.nodes[this.selectedHostname];
+      if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
       this.promptProtectedAction('reboot', `Reboot ${this.selectedHostname}? It will restart and reconnect in ~15 seconds.`, () => {
         this.sendNodeCommand(this.selectedHostname, 'reboot');
       });
@@ -1510,6 +1565,8 @@ class PiCloudApp {
     // 5. Shutdown (Protected)
     document.getElementById('cmd-shutdown-btn')?.addEventListener('click', () => {
       if (!this.selectedHostname) return;
+      const node = this.nodes[this.selectedHostname];
+      if (!node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning')) return;
       this.promptProtectedAction(
         'shutdown',
         `Halt and power off ${this.selectedHostname}?`,
@@ -1573,6 +1630,13 @@ class PiCloudApp {
   }
 
   async sendNodeCommand(hostname, cmd, options = {}) {
+    if (hostname !== 'all') {
+      const node = this.nodes[hostname];
+      if (node && (node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning'))) {
+        console.warn(`[CMD] Cannot dispatch command to offline node ${hostname}`);
+        return;
+      }
+    }
     try {
       const res = await fetch(`/api/nodes/${hostname}/cmd`, {
         method: 'POST',
@@ -1669,21 +1733,19 @@ class PiCloudApp {
       this.currentUser = data.authenticated ? data.user : null;
       this.updateAuthUi();
 
-      // Display OIDC endpoint info in login modal
-      const baseUrlEl = document.getElementById('oidc-base-url-display');
-      if (baseUrlEl && data.oidcBaseUrl) baseUrlEl.textContent = data.oidcBaseUrl;
+      // Dev mode button: if AUTH_DEV_MODE=false, hide Quick Dev Mode Sign-in button
+      const devLoginBtn = document.getElementById('dev-login-btn');
+      if (devLoginBtn) {
+        devLoginBtn.classList.toggle('hidden', data.devMode === false);
+      }
 
-      const callbackUrlEl = document.getElementById('oidc-callback-url-display');
-      if (callbackUrlEl && data.oidcCallbackUrl) callbackUrlEl.textContent = data.oidcCallbackUrl;
-
-      const statusChip = document.getElementById('oidc-status-chip');
-      if (statusChip) {
-        if (data.oidcConfigured) {
-          statusChip.textContent = 'Configured';
-          statusChip.className = 'text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+      // OIDC provider label on login button
+      const oidcLabel = document.getElementById('oidc-login-label');
+      if (oidcLabel) {
+        if (data.oidcProvider && data.oidcProvider.trim()) {
+          oidcLabel.textContent = `Sign in with ${data.oidcProvider}`;
         } else {
-          statusChip.textContent = 'Dev Mode';
-          statusChip.className = 'text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20';
+          oidcLabel.textContent = 'Sign in with OIDC Provider';
         }
       }
     } catch (err) {
@@ -1723,27 +1785,58 @@ class PiCloudApp {
   }
 
   updateCommandButtonsState() {
+    this.updateDrawerInteractiveState();
+  }
+
+  updateDrawerInteractiveState(node) {
+    if (!node) {
+      if (this.selectedHostname && this.nodes[this.selectedHostname]) {
+        node = this.nodes[this.selectedHostname];
+      }
+    }
+
+    const isOffline = !node || node.status === 'offline' || (node.status !== 'online' && node.status !== 'warning');
+
+    const interactiveSelectors = [
+      '#fan-mode-auto-btn',
+      '#fan-mode-on-btn',
+      '#fan-mode-off-btn',
+      '#fan-speed-1-btn',
+      '#fan-speed-2-btn',
+      '#fan-speed-3-btn',
+      '#fan-speed-4-btn',
+      '#fan-temp-on-slider',
+      '#fan-temp-off-slider',
+      '#fan-preset-cool',
+      '#fan-preset-balanced',
+      '#fan-preset-silent',
+      '#fan-apply-btn',
+      '#cmd-identify-btn',
+      '#cmd-poll-btn'
+    ];
+
+    interactiveSelectors.forEach((sel) => {
+      const el = document.querySelector(sel);
+      if (el) {
+        el.disabled = isOffline;
+        el.classList.toggle('opacity-40', isOffline);
+        el.classList.toggle('cursor-not-allowed', isOffline);
+      }
+    });
+
     const rebootBtn = document.getElementById('cmd-reboot-btn');
     const shutdownBtn = document.getElementById('cmd-shutdown-btn');
-    const authBadge = document.getElementById('drawer-auth-badge');
-    const authHint = document.getElementById('cmd-auth-hint');
+    const allowPrivileged = !isOffline && Boolean(this.currentUser);
 
-    if (this.currentUser) {
-      if (rebootBtn) rebootBtn.disabled = false;
-      if (shutdownBtn) shutdownBtn.disabled = false;
-      if (authBadge) {
-        authBadge.textContent = 'Admin Unlocked 🔓';
-        authBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium';
-      }
-      if (authHint) authHint.classList.add('hidden');
-    } else {
-      if (rebootBtn) rebootBtn.disabled = true;
-      if (shutdownBtn) shutdownBtn.disabled = true;
-      if (authBadge) {
-        authBadge.textContent = 'Public View (Read-Only)';
-        authBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700';
-      }
-      if (authHint) authHint.classList.remove('hidden');
+    if (rebootBtn) {
+      rebootBtn.disabled = !allowPrivileged;
+      rebootBtn.classList.toggle('opacity-40', !allowPrivileged);
+      rebootBtn.classList.toggle('cursor-not-allowed', !allowPrivileged);
+    }
+    if (shutdownBtn) {
+      shutdownBtn.disabled = !allowPrivileged;
+      shutdownBtn.classList.toggle('opacity-40', !allowPrivileged);
+      shutdownBtn.classList.toggle('cursor-not-allowed', !allowPrivileged);
     }
   }
 
@@ -1753,6 +1846,7 @@ class PiCloudApp {
       window.location.href = '/auth/logout';
     });
     document.getElementById('close-login-modal')?.addEventListener('click', () => this.closeLoginModal());
+    document.getElementById('login-cancel-btn')?.addEventListener('click', () => this.closeLoginModal());
 
     document.getElementById('dev-login-btn')?.addEventListener('click', async () => {
       try {

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PiCloud Digital Twin - Kiosk Mode</title>
+  
+  <!-- Inter & JetBrains Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- Custom Glassmorphism Styles -->
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="h-full w-full overflow-hidden bg-slate-950 text-slate-100 font-sans select-none antialiased">
+
+  <!-- ================= FULLSCREEN 3D CANVAS VIEWPORT ================= -->
+  <div id="kiosk-container" class="relative w-screen h-screen overflow-hidden bg-slate-950">
+    <div id="kiosk-canvas-container" class="w-full h-full"></div>
+
+    <!-- Top-Left Brand & Navigation Bar -->
+    <div class="absolute top-4 left-4 flex items-center gap-3 z-20 pointer-events-auto">
+      <div class="flex items-center gap-2.5 bg-slate-900/85 border border-slate-800 backdrop-blur-md px-3.5 py-1.5 rounded-xl shadow-xl">
+        <div class="w-6 h-6 rounded-lg bg-gradient-to-tr from-rose-500 to-pink-500 flex items-center justify-center text-sm shadow-sm">
+          🍓
+        </div>
+        <div>
+          <span class="text-xs font-bold text-white tracking-tight">PiCloud</span>
+          <span class="text-[10px] text-sky-400 font-mono ml-1">Digital Twin</span>
+        </div>
+      </div>
+
+      <a href="/" class="px-3 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-xs backdrop-blur-md transition flex items-center gap-1.5 shadow-xl hover:scale-105 active:scale-95 group">
+        <span class="transition-transform group-hover:-translate-x-0.5">←</span> Dashboard
+      </a>
+    </div>
+
+    <!-- Top-Right Auto-Tour Controller Bar -->
+    <div class="absolute top-4 right-4 flex items-center gap-2 z-20 pointer-events-auto">
+      <!-- Live Tour State Pill -->
+      <div id="tour-status-pill" class="px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-sky-500/30 text-sky-300 text-xs font-mono font-medium backdrop-blur-md shadow-2xl flex items-center gap-2">
+        <span id="tour-status-dot" class="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+        <span id="tour-status-text">Wall Overview (5s)</span>
+      </div>
+
+      <!-- Play / Pause Button -->
+      <button id="tour-pause-btn" title="Pause / Resume Auto Tour (Space)" class="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white backdrop-blur-md shadow-2xl transition hover:scale-105 active:scale-95 flex items-center justify-center">
+        <span id="tour-pause-icon">⏸</span>
+      </button>
+
+      <!-- Skip Button -->
+      <button id="tour-skip-btn" title="Skip to Next Node (→)" class="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white backdrop-blur-md shadow-2xl transition hover:scale-105 active:scale-95 flex items-center justify-center">
+        <span>⏭</span>
+      </button>
+
+      <!-- Fullscreen Toggle Button -->
+      <button id="tour-fullscreen-btn" title="Toggle Browser Fullscreen (F)" class="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white backdrop-blur-md shadow-2xl transition hover:scale-105 active:scale-95 flex items-center justify-center">
+        <svg id="fullscreen-expand-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+        </svg>
+        <svg id="fullscreen-collapse-icon" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4v4m0 0H5m4 0L4 3m11 5h4m-4 0V4m0 4l5-5M9 20v-4m0 0H5m4 0l-5 5m11-5l5 5m-5-5v4m0-4h4"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Bottom Controls Hint Legend -->
+    <div class="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800/80 rounded-xl px-3.5 py-1.5 text-xs text-slate-400 flex items-center gap-3 shadow-xl pointer-events-auto">
+      <span>🖱️ Orbit: Drag &bull; Zoom: Scroll &bull; Click Pi: Inspect &bull; Space: Pause Tour</span>
+    </div>
+
+    <!-- Bottom-Right MQTT Real-Time Status -->
+    <div class="absolute bottom-4 right-4 bg-slate-950/80 backdrop-blur-md border border-slate-800/80 rounded-xl px-3.5 py-1.5 text-xs text-slate-400 flex items-center gap-2 shadow-xl">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="font-mono text-[11px] text-slate-300">Live Telemetry (48 Nodes)</span>
+    </div>
+
+    <!-- ================= SLIDE-OUT TELEMETRY DRAWER (READ-ONLY) ================= -->
+    <aside id="kiosk-drawer" class="fixed top-0 right-0 h-full w-[420px] max-w-[90vw] bg-slate-950/95 backdrop-blur-xl border-l border-slate-800/90 shadow-2xl z-30 transform translate-x-full transition-transform duration-500 ease-out flex flex-col pointer-events-auto">
+      
+      <!-- Drawer Header -->
+      <div class="p-5 border-b border-slate-800/80 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span id="drawer-id" class="px-2.5 py-1 rounded-md text-xs font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+            #--
+          </span>
+          <div>
+            <h3 id="drawer-hostname" class="text-base font-bold text-white tracking-tight">picloud-node</h3>
+            <div class="flex items-center gap-2 text-[11px]">
+              <span id="drawer-ip" class="text-slate-400 font-mono">10.129.111.--</span>
+              <span class="text-slate-600">&bull;</span>
+              <span id="drawer-status-badge" class="text-slate-400 font-medium">Checking...</span>
+            </div>
+          </div>
+        </div>
+        <button id="close-drawer-btn" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition text-xs flex items-center gap-1">
+          <span class="text-[10px] font-mono text-slate-400 bg-slate-800 px-1 py-0.5 rounded border border-slate-700">ESC</span>
+          <span class="text-base leading-none">&times;</span>
+        </button>
+      </div>
+
+      <!-- Drawer Body (Strictly Read-Only Telemetry - No Action or Fan Controls) -->
+      <div class="p-5 flex-1 overflow-y-auto flex flex-col gap-4 text-xs">
+        
+        <!-- 1. Quick Telemetry Cards -->
+        <div class="grid grid-cols-3 gap-2">
+          <div class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/90 text-center shadow">
+            <div class="text-slate-400 mb-0.5 text-[11px]">Temperature</div>
+            <div id="drawer-temp" class="text-lg font-bold text-white font-mono">--°C</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/90 text-center shadow">
+            <div class="text-slate-400 mb-0.5 text-[11px]">CPU Load</div>
+            <div id="drawer-cpu" class="text-lg font-bold text-white font-mono">--%</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/90 text-center shadow">
+            <div class="text-slate-400 mb-0.5 text-[11px]">PoE Power</div>
+            <div id="drawer-power" class="text-lg font-bold text-emerald-400 font-mono">-- W</div>
+          </div>
+        </div>
+
+        <!-- 2. PoE & Hardware Diagnostics -->
+        <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 flex flex-col gap-2 shadow">
+          <h4 class="font-semibold text-slate-200 flex items-center justify-between text-xs">
+            <span class="flex items-center gap-1.5">
+              <span>⚡</span> PoE & Hardware Diagnostics
+            </span>
+            <span id="drawer-fan-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-mono font-medium">
+              Fan: Level 0
+            </span>
+          </h4>
+          <div class="grid grid-cols-2 gap-2 text-slate-400 pt-1 text-[11px]">
+            <div>Current: <span id="drawer-amps" class="text-slate-200 font-mono">0 A</span></div>
+            <div>Energy: <span id="drawer-energy" class="text-slate-200 font-mono">0 Wh</span></div>
+            <div>Fan Level: <span id="drawer-fan" class="text-slate-200 font-mono">Level 0</span></div>
+            <div>Clock Speed: <span id="drawer-freq" class="text-slate-200 font-mono">0 MHz</span></div>
+          </div>
+          <div class="mt-1 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+            <span class="text-slate-400">Firmware Throttling:</span>
+            <span id="drawer-throttled-badge" class="font-mono text-emerald-400">0x0 (Healthy)</span>
+          </div>
+        </div>
+
+        <!-- 3. System & Storage -->
+        <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 flex flex-col gap-2 shadow">
+          <h4 class="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+            <span>🧠</span> System & Storage
+          </h4>
+          <div class="grid grid-cols-2 gap-2 text-slate-400 text-[11px]">
+            <div>Memory: <span id="drawer-mem" class="text-slate-200 font-mono">0%</span></div>
+            <div>RAM Avail: <span id="drawer-ram" class="text-slate-200 font-mono">0 MB</span></div>
+            <div>Disk Used: <span id="drawer-disk" class="text-slate-200 font-mono">0%</span></div>
+            <div>Disk Free: <span id="drawer-disk-free" class="text-slate-200 font-mono">0 GB</span></div>
+            <div>Zram Ratio: <span id="drawer-zram" class="text-slate-200 font-mono">N/A</span></div>
+            <div>Uptime: <span id="drawer-uptime" class="text-slate-200 font-mono">--</span></div>
+          </div>
+        </div>
+
+        <!-- 4. Network Metrics -->
+        <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 flex flex-col gap-2 shadow">
+          <h4 class="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+            <span>🌐</span> Network Throughput
+          </h4>
+          <div class="grid grid-cols-2 gap-2 text-slate-400 text-[11px]">
+            <div>Link Speed: <span id="drawer-eth-speed" class="text-emerald-400 font-mono">1000 Mbps</span></div>
+            <div>Gateway Ping: <span id="drawer-ping" class="text-slate-200 font-mono">0 ms</span></div>
+            <div>Rx Rate: <span id="drawer-rx" class="text-slate-200 font-mono">0 KB/s</span></div>
+            <div>Tx Rate: <span id="drawer-tx" class="text-slate-200 font-mono">0 KB/s</span></div>
+          </div>
+        </div>
+
+        <!-- 5. SSH & Interactive Logins -->
+        <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 flex flex-col gap-2 shadow">
+          <div class="flex items-center justify-between">
+            <h4 class="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+              <span>🔑</span> SSH & User Sessions
+            </h4>
+            <span id="drawer-ssh-status-badge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">SSH Listening</span>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-2 text-slate-400 pt-1 text-[11px]">
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-500">Active Logins:</span>
+              <span id="drawer-ssh-active-count" class="text-slate-200 font-mono font-semibold">0</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-500">Session State:</span>
+              <span id="drawer-ssh-active-state" class="text-slate-400 font-mono">Idle</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-500">Client IP:</span>
+              <span id="drawer-ssh-client-ip" class="text-slate-200 font-mono truncate">--</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-500">Duration:</span>
+              <span id="drawer-ssh-duration" class="text-slate-200 font-mono truncate">--</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5 pt-1.5 text-[11px] border-t border-slate-800/80">
+            <div class="flex items-center justify-between text-slate-400">
+              <span class="text-slate-500 flex items-center gap-1 shrink-0">📥 Last Login:</span>
+              <span id="drawer-ssh-last-login-info" class="text-slate-300 font-mono text-right truncate ml-2">--</span>
+            </div>
+            <div class="flex items-center justify-between text-slate-400">
+              <span class="text-slate-500 flex items-center gap-1 shrink-0">📤 Last Logout:</span>
+              <span id="drawer-ssh-last-logout-info" class="text-slate-300 font-mono text-right truncate ml-2">None recorded</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Drawer Footer -->
+      <div class="p-3 border-t border-slate-800/80 text-center text-[10px] text-slate-500 font-mono">
+        UCL Connected Environments &bull; Kiosk Mode
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- Application Logic (ES Module) -->
+  <script type="module" src="/js/kiosk.js"></script>
+</body>
+</html>
+

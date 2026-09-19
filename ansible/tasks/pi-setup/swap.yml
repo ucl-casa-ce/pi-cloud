@@ -5,24 +5,30 @@
   become: true
 
   tasks:
-    - name: Disable dphys-swapfile swap to protect SD card from wear
+    # --------------------------------------------------------------------------
+    # Debian 12 (Bookworm) and earlier: disable disk swap, setup zram-tools
+    # --------------------------------------------------------------------------
+    - name: Disable dphys-swapfile swap to protect SD card from wear (Bookworm and earlier)
       ansible.builtin.command: dphys-swapfile swapoff
       failed_when: false
       changed_when: false
+      when: ansible_distribution_major_version | int <= 12
 
-    - name: Disable and stop dphys-swapfile service
+    - name: Disable and stop dphys-swapfile service (Bookworm and earlier)
       ansible.builtin.systemd:
         name: dphys-swapfile
         state: stopped
         enabled: false
       failed_when: false
+      when: ansible_distribution_major_version | int <= 12
 
-    - name: Install zram-tools
+    - name: Install zram-tools (Bookworm and earlier)
       ansible.builtin.apt:
         name: zram-tools
         state: present
+      when: ansible_distribution_major_version | int <= 12
 
-    - name: Configure zram swap (50% RAM, zstd compression)
+    - name: Configure zram swap (50% RAM, zstd compression) (Bookworm and earlier)
       ansible.builtin.lineinfile:
         path: /etc/default/zramswap
         regexp: "{{ item.regexp }}"
@@ -30,9 +36,27 @@
       loop:
         - { regexp: '^#?ALGO=', line: 'ALGO=zstd' }
         - { regexp: '^#?PERCENT=', line: 'PERCENT=50' }
+      when: ansible_distribution_major_version | int <= 12
 
-    - name: Ensure zramswap service is enabled and started
+    - name: Ensure zramswap service is enabled and started (Bookworm and earlier)
       ansible.builtin.systemd:
         name: zramswap
         state: started
         enabled: true
+      when: ansible_distribution_major_version | int <= 12
+
+    # --------------------------------------------------------------------------
+    # Debian 13 (Trixie) and later: Native systemd zram swap built-in
+    # --------------------------------------------------------------------------
+    - name: Ensure conflicting zram-tools package is absent (Trixie)
+      ansible.builtin.apt:
+        name: zram-tools
+        state: absent
+        purge: true
+      when: ansible_distribution_major_version | int >= 13
+
+    - name: Verify native Raspberry Pi OS zram swap device is active (Trixie)
+      ansible.builtin.command: zramctl /dev/zram0
+      register: zram_status
+      changed_when: false
+      when: ansible_distribution_major_version | int >= 13

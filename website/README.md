@@ -38,6 +38,11 @@ Built with **Node.js, Express, WebSockets, Three.js, Tailwind CSS, and OpenID Co
   * **Public by default**: Anyone can view the 3D twin, cluster stats, and detailed sensor data without logging in.
   * **Protected actions**: `Reboot` and `Shutdown` require logging in via OIDC (Google, Auth0, Keycloak, or UCL CASA).
   * **Visual Locator**: `Identify / Locate` sends an MQTT command to flash the physical Pi's green ACT LED for 10 seconds and illuminates a visual spotlight beam in the 3D digital twin.
+* **Kiosk Auto-Tour Mode (`/kiosk`)**:
+  * Standalone full-viewport (`100vw × 100vh`) presentation mode designed for unattended lab displays, lobby screens, and public exhibitions.
+  * Autonomous presentation loop: showcases the full 3D wall overview (5s), smoothly flies camera to inspect a random node, slides out live telemetry drawer (20s), slides closed, returns to full wall view, and repeats indefinitely.
+  * Strictly read-only: all interactive controls (fan speed buttons, temperature sliders, presets, reboot, and shutdown) are completely omitted from the kiosk DOM.
+  * Floating HUD with real-time countdown timer, pause/resume (`⏸`/`▶`), skip (`⏭`), and fullscreen toggle (`⛶`).
 * **Zero-Friction Reliability**:
   * **Staleness Watchdog**: Automatically marks nodes offline if telemetry heartbeats cease for >18s or if a reboot times out.
   * **Dev Mode Auth**: Allows one-click local admin sign-in for testing control commands before setting up an external identity provider.
@@ -90,7 +95,10 @@ Key environment variables:
 | `OIDC_ISSUER_URL` | `https://accounts.google.com` | OpenID Connect discovery endpoint |
 | `OIDC_CLIENT_ID` | `""` | OIDC client ID from your IdP |
 | `OIDC_CLIENT_SECRET` | `""` | OIDC client secret |
-| `AUTH_DEV_MODE` | `true` | Enables quick one-click local admin login |
+| `OIDC_PROVIDER` | `UCL Single Sign-On` | Custom provider name displayed on the OIDC login button |
+| `AUTH_DEV_MODE` | `true` | Enables quick one-click local admin login (set `false` to hide) |
+| `KIOSK_NODE_INTERVAL` | `20` | Dwell time (seconds) inspecting each node during Kiosk auto-tour |
+| `KIOSK_OVERVIEW_INTERVAL` | `5` | Dwell time (seconds) showing full wall between nodes during Kiosk auto-tour |
 
 #### 3. Run the Dashboard
 ```bash
@@ -137,4 +145,41 @@ The dashboard publishes commands to `student/PiCloud/<hostname>/cmd` or `student
 * **`metrics`**: Triggers immediate on-demand sensor reading and report publish.
 * **`reboot`**: Safely reboots the node (OIDC login required).
 * **`shutdown`**: Safely powers off the node (OIDC login required).
+
+---
+
+## Kiosk Auto-Tour Mode
+
+The dashboard provides a dedicated, full-screen presentation interface accessible at **`/kiosk`** (or via the **📺 Kiosk Auto-Tour** link in the main dashboard footer). Designed for unattended displays, lab reception screens, and public exhibitions, it continuously cycles through the 48-node physical wall in 3D.
+
+### Autonomous Tour Cycle
+1. **Wall Overview (5s)**: Displays the full 48-node physical mounting wall in Three.js with ambient lighting.
+2. **Random Node Selection**: Selects a random Pi node (with non-repeating selection logic).
+3. **Camera Fly-In & Telemetry Drawer**: Smoothly flies the 3D camera to face the selected node and slides open the right telemetry drawer.
+4. **Live Telemetry Dwell (20s default)**: Displays real-time sensor metrics streamed over WebSockets (temperature, CPU load, PoE watts/amps/energy, fan speed, throttling bitmask, memory, disk, network throughput, ping, active SSH sessions, and login history).
+5. **Strictly Read-Only (Zero Controls)**: All interactive controls (fan mode buttons, speed buttons, temperature sliders, presets, reboot, and shutdown) are completely omitted from the kiosk DOM to prevent accidental or unauthorized interaction.
+6. **Drawer Close & Zoom Out (5s Overview)**: Slides the drawer closed, flies the camera back out to the full wall overview, pauses for 5 seconds, and repeats the cycle with a new random node indefinitely.
+
+### URL Query Parameter Overrides
+You can customize the tour behavior dynamically using URL query parameters:
+
+| Parameter | Example | Description |
+| :--- | :--- | :--- |
+| `interval` | `/kiosk?interval=30` | Dwell time (seconds) on each inspected node (default: `20`) |
+| `overview` | `/kiosk?overview=10` | Dwell time (seconds) showing the whole wall between nodes (default: `5`) |
+| `start` | `/kiosk?start=picloud-12` | Specific node hostname to inspect first on load |
+| `nodes` | `/kiosk?nodes=1,5,12,24` | Restrict random selection to a specific subset of node numbers |
+
+Parameters can be combined freely:
+```
+http://localhost:3000/kiosk?interval=15&overview=8&start=picloud-1
+```
+
+### Controls & Keyboard Shortcuts
+* **Click any Pi in 3D**: Instantly focus and inspect that node (resets the dwell countdown timer).
+* **`Space`**: Pause or resume the auto-tour.
+* **`ArrowRight` (`→`)**: Skip immediately to the next random node.
+* **`F`**: Toggle browser fullscreen.
+* **`Escape`**: Close telemetry drawer or exit fullscreen.
+
 

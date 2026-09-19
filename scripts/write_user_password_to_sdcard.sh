@@ -1,0 +1,2 @@
+#!/usr/bin/env zsh
+PASSWORD="raspberry" && HASH=$(echo -n "$PASSWORD" | openssl passwd -6 -stdin) && echo "" && echo "🚀 Script started! Plug in a PiOS SD card..." && while true; do if [ -d "/Volumes/bootfs" ]; then echo "⚙️ Found SD card. Forcing configuration..." && echo "pi:$HASH" >! /Volumes/bootfs/userconf.txt && touch /Volumes/bootfs/ssh && sync && diskutil eject /Volumes/bootfs && afplay /System/Library/Sounds/Glass.aiff && echo "✅ Done! Ejecting. Insert next card..." ; fi; sleep 1; done

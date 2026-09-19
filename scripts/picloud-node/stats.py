@@ -464,7 +464,7 @@ def get_ssh_info():
     active_sessions = []
     active_user_names = []
 
-    # 1. Live active terminal sessions using psutil
+    # 1. Live active terminal sessions using psutil (standard Linux with utmp)
     try:
         users = psutil.users()
         for u in users:
@@ -491,6 +491,69 @@ def get_ssh_info():
     except Exception:
         pass
 
+    # 1b. Fallback for Debian 13 (Trixie) and modern systems where /run/utmp is deprecated/removed
+    if not active_sessions:
+        tty_map = {}
+        try:
+            for p in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+                cmd = " ".join(p.info["cmdline"] or [])
+                m = re.search(r"sshd(?:-session)?:\s+([^@\s]+)@(pts/\d+)", cmd)
+                if m:
+                    u, t = m.group(1), m.group(2)
+                    ip = "local"
+                    try:
+                        conns = p.net_connections() if hasattr(p, "net_connections") else p.connections()
+                        if not conns and p.parent():
+                            parent = p.parent()
+                            conns = parent.net_connections() if hasattr(parent, "net_connections") else parent.connections()
+                        for c in conns:
+                            if c.raddr:
+                                ip = c.raddr.ip
+                                break
+                    except Exception:
+                        pass
+                    start_ts = p.info["create_time"]
+                    dur_sec = max(0, int(time.time() - start_ts))
+                    tty_map[t] = {
+                        "user": u,
+                        "terminal": t,
+                        "host": ip,
+                        "start_ts": start_ts,
+                        "duration_seconds": dur_sec,
+                        "login_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_ts)),
+                    }
+        except Exception:
+            pass
+
+        # Correlate with coreutils 'who' (which is patched for logind in Trixie)
+        try:
+            who_res = subprocess.run(["who"], capture_output=True, text=True, timeout=2)
+            if who_res.returncode == 0:
+                for line in who_res.stdout.splitlines():
+                    m = re.search(r"(\S+)\s+(?:sshd\s+)?(pts/\d+)\s+([\d-]+\s+[\d:]+)(?:\s+\(([^)]+)\))?", line.strip())
+                    if m:
+                        u, t, login_t, r_host = m.groups()
+                        if t in tty_map:
+                            if r_host and tty_map[t]["host"] in ("local", ""):
+                                tty_map[t]["host"] = r_host
+                        else:
+                            tty_map[t] = {
+                                "user": u,
+                                "terminal": t,
+                                "host": r_host or "local",
+                                "login_time": login_t,
+                                "duration_seconds": 0,
+                            }
+        except Exception:
+            pass
+
+        for sess in tty_map.values():
+            dur_sec = sess.get("duration_seconds", 0)
+            sess["duration"] = format_human_duration(dur_sec) if dur_sec > 0 else "Active"
+            active_sessions.append(sess)
+            if sess["user"] not in active_user_names:
+                active_user_names.append(sess["user"])
+
     # 2. Historical logins and logout events from 'last'
     recent_sessions = []
     last_login = None
@@ -509,6 +572,14 @@ def get_ssh_info():
         if not raw_text:
             try:
                 res = subprocess.run(["last", "-n", "20"], capture_output=True, text=True, timeout=2)
+                if res.returncode == 0 and res.stdout:
+                    raw_text = res.stdout
+            except Exception:
+                pass
+
+        if not raw_text:
+            try:
+                res = subprocess.run(["wtmpdb", "last", "-n", "20"], capture_output=True, text=True, timeout=2)
                 if res.returncode == 0 and res.stdout:
                     raw_text = res.stdout
             except Exception:
@@ -543,12 +614,12 @@ def get_ssh_info():
             login_time = rest
 
             if is_still_in:
-                login_time = rest.replace("still logged in", "").replace("still running", "").strip()
+                login_time = rest.replace("still logged in", "").replace("still running", "").rstrip(" -").strip()
                 logout_time = "Active"
                 duration = "Active"
             elif " - " in rest:
                 time_parts = rest.split(" - ", 1)
-                login_time = time_parts[0].strip()
+                login_time = time_parts[0].rstrip(" -").strip()
                 after_dash = time_parts[1].strip()
                 dur_match = re.search(r"\((.*?)\)", after_dash)
                 if dur_match:
@@ -556,6 +627,8 @@ def get_ssh_info():
                     logout_time = re.sub(r"\(.*?\)", "", after_dash).strip()
                 else:
                     logout_time = after_dash
+            else:
+                login_time = rest.rstrip(" -").strip()
 
             sess = {
                 "user": user,
@@ -589,7 +662,60 @@ def get_ssh_info():
     except Exception:
         pass
 
-    # If last_login not populated from last, fallback to active session
+    # 2b. Fallback to journalctl for SSH login history if 'last' returned nothing (Debian 13)
+    if not recent_sessions:
+        fallback_term = active_sessions[0]["terminal"] if active_sessions else "pts/0"
+        try:
+            j_res = subprocess.run(["journalctl", "-u", "ssh", "-n", "50", "--no-pager"], capture_output=True, text=True, timeout=2)
+            if j_res.returncode == 0:
+                for line in reversed(j_res.stdout.splitlines()):
+                    m = re.search(r"^([A-Z][a-z]{2}\s+\d+\s+[\d:]+).*Accepted (?:password|publickey) for (\S+) from (\S+)", line)
+                    if m:
+                        t_str, u, h = m.groups()
+                        is_active = any(s["user"] == u for s in active_sessions)
+                        recent_sessions.append({
+                            "user": u,
+                            "terminal": fallback_term,
+                            "host": h,
+                            "login_time": t_str.rstrip(" -").strip(),
+                            "logout_time": "Active" if is_active else "Closed",
+                            "duration": "Active" if is_active else "N/A",
+                            "is_active": is_active,
+                        })
+                        if not last_login:
+                            last_login = {
+                                "user": u,
+                                "host": h,
+                                "terminal": fallback_term,
+                                "time": t_str.rstrip(" -").strip(),
+                            }
+                        if len(recent_sessions) >= 5:
+                            break
+        except Exception:
+            pass
+
+    # Fallback to systemd-logind for last_logout if still not found
+    if not last_logout:
+        try:
+            l_res = subprocess.run(["journalctl", "-u", "systemd-logind", "-n", "30", "--no-pager"], capture_output=True, text=True, timeout=2)
+            if l_res.returncode == 0:
+                for line in reversed(l_res.stdout.splitlines()):
+                    m_out = re.search(r"^([A-Z][a-z]{2}\s+\d+\s+[\d:]+).*Session \d+ logged out", line)
+                    if m_out:
+                        logout_ts = m_out.group(1).rstrip(" -").strip()
+                        last_logout = {
+                            "user": last_login["user"] if last_login else (active_sessions[0]["user"] if active_sessions else "pi"),
+                            "host": last_login["host"] if last_login else (active_sessions[0]["host"] if active_sessions else "local"),
+                            "terminal": last_login["terminal"] if last_login else (active_sessions[0]["terminal"] if active_sessions else "pts/0"),
+                            "login_time": last_login["time"] if last_login else "N/A",
+                            "logout_time": logout_ts,
+                            "duration": "<1 min",
+                        }
+                        break
+        except Exception:
+            pass
+
+    # If last_login not populated, fallback to active session
     if not last_login and active_sessions:
         first = active_sessions[0]
         last_login = {

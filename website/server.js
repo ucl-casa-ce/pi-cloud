@@ -27,6 +27,11 @@ const OIDC_BASE_URL = (
 ).replace(/\/+$/, '');
 const OIDC_CALLBACK_URL = process.env.OIDC_CALLBACK_URL || `${OIDC_BASE_URL}/auth/callback`;
 const OIDC_SCOPES = (process.env.OIDC_SCOPES || 'openid profile email').trim();
+const OIDC_PROVIDER = process.env.OIDC_PROVIDER || process.env.OIDC_Provider || process.env.OIDC_PROVIDER_NAME || '';
+
+// Kiosk Auto-Tour cycle intervals
+const KIOSK_NODE_INTERVAL = Math.max(3, parseInt(process.env.KIOSK_NODE_INTERVAL || process.env.KIOSK_INTERVAL || '20', 10) || 20);
+const KIOSK_OVERVIEW_INTERVAL = Math.max(1, parseInt(process.env.KIOSK_OVERVIEW_INTERVAL || '5', 10) || 5);
 
 // ==========================================
 // 1. CLUSTER STATE & EVENT LOG STORE
@@ -492,11 +497,24 @@ app.get('/auth/me', (req, res) => {
     authenticated: !!req.session?.user,
     user: req.session?.user || null,
     devMode: AUTH_DEV_MODE,
+    oidcProvider: OIDC_PROVIDER,
     oidcConfigured: !!oidcClient,
     oidcBaseUrl: OIDC_BASE_URL,
     oidcCallbackUrl: OIDC_CALLBACK_URL,
     oidcScopes: OIDC_SCOPES
   });
+});
+
+// Kiosk Auto-Tour configuration and view route
+app.get('/api/kiosk-config', (req, res) => {
+  res.json({
+    nodeInterval: KIOSK_NODE_INTERVAL,
+    overviewInterval: KIOSK_OVERVIEW_INTERVAL
+  });
+});
+
+app.get('/kiosk', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'kiosk.html'));
 });
 
 // Dev Mode login
@@ -799,8 +817,20 @@ app.post('/api/nodes/:hostname/cmd', requireAuth, (req, res) => {
       for (let i = 1; i <= TOTAL_NODES; i++) {
         nodes[`picloud-${i}`].identifying_until = expiresAt;
       }
+      setTimeout(() => {
+        for (let i = 1; i <= TOTAL_NODES; i++) {
+          if (nodes[`picloud-${i}`].identifying_until <= expiresAt) {
+            nodes[`picloud-${i}`].identifying_until = 0;
+          }
+        }
+      }, (dur + 1) * 1000);
     } else if (nodes[hostname]) {
       nodes[hostname].identifying_until = expiresAt;
+      setTimeout(() => {
+        if (nodes[hostname] && nodes[hostname].identifying_until <= expiresAt) {
+          nodes[hostname].identifying_until = 0;
+        }
+      }, (dur + 1) * 1000);
     }
     broadcastWs({
       type: 'IDENTIFY_TRIGGER',
@@ -987,7 +1017,7 @@ function connectMqtt() {
             sshObj.recent_sessions = sshObj.recent_sessions
               .filter((s) => {
                 const term = s.terminal || '';
-                return term.startsWith('pts');
+                return term.startsWith('pts') || term.includes('ssh') || term === 'ssh' || (s.host && s.host !== 'local');
               })
               .map((s) => ({
                 ...s,

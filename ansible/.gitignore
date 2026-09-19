@@ -1,4 +1,5 @@
 hosts.ini
+hosts_start_of_year.ini
 config.yml
 ansible_collections
 roles/sjg.*
