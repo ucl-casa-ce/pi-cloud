@@ -1027,6 +1027,12 @@ function connectMqtt() {
           if (sshObj.last_logout && sshObj.last_logout.duration) {
             sshObj.last_logout.duration = parseAndFormatDuration(sshObj.last_logout.duration);
           }
+          if (sshObj.last_login?.time) {
+            sshObj.last_login.time = sshObj.last_login.time.replace(/\s*-\s*$/, '').trim();
+          }
+          if (sshObj.last_logout?.logout_time) {
+            sshObj.last_logout.logout_time = sshObj.last_logout.logout_time.replace(/\s*-\s*$/, '').trim();
+          }
           sshObj.active_users_count = sshObj.active_sessions ? sshObj.active_sessions.length : 0;
           sshObj.active_users = sshObj.active_sessions ? [...new Set(sshObj.active_sessions.map((s) => s.user))] : [];
           sshObj.primary_user = sshObj.active_users[0] || null;

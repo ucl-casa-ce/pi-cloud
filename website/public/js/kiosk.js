@@ -386,10 +386,13 @@ class PiCloudKiosk {
 
     // SSH & User Sessions
     const ssh = d.ssh || {};
-    const activeSessions = (ssh.active_sessions || []).filter((s) => {
+    const isSshSession = (s) => {
+      if (!s) return false;
       const term = s.terminal || '';
-      return term.startsWith('pts') || (s.host && s.host !== 'local' && !term.startsWith('tty'));
-    });
+      return term.startsWith('pts') || term.includes('ssh') || term === 'ssh' || (s.host && s.host !== 'local' && !term.startsWith('tty'));
+    };
+
+    const activeSessions = (ssh.active_sessions || []).filter(isSshSession);
     const activeCount = activeSessions.length;
 
     this.setText('drawer-ssh-active-count', `${activeCount}`);
@@ -408,17 +411,25 @@ class PiCloudKiosk {
       this.setText('drawer-ssh-duration', '--');
     }
 
-    const lastLogin = ssh.last_login?.terminal?.startsWith('pts') ? ssh.last_login : null;
+    const recent = (ssh.recent_sessions || []).filter(isSshSession);
+
+    const lastLogin = (ssh.last_login && isSshSession(ssh.last_login))
+      ? ssh.last_login
+      : (recent.length > 0 ? recent[0] : null);
     if (lastLogin) {
       const hostPart = lastLogin.host && lastLogin.host !== 'local' ? `${lastLogin.host} · ` : '';
-      this.setText('drawer-ssh-last-login-info', `${hostPart}${lastLogin.time || lastLogin.login_time || '--'}`);
+      const rawTime = (lastLogin.time || lastLogin.login_time || '--').replace(/\s*-\s*$/, '').trim();
+      this.setText('drawer-ssh-last-login-info', `${hostPart}${rawTime}`);
     } else {
       this.setText('drawer-ssh-last-login-info', '--');
     }
 
-    const lastLogout = ssh.last_logout?.terminal?.startsWith('pts') ? ssh.last_logout : null;
+    const lastLogout = (ssh.last_logout && (isSshSession(ssh.last_logout) || ssh.last_logout.logout_time) && ssh.last_logout.logout_time !== 'Active')
+      ? ssh.last_logout
+      : (recent.find((s) => !s.is_active && s.logout_time && s.logout_time !== 'Active') || null);
     if (lastLogout) {
-      this.setText('drawer-ssh-last-logout-info', `${lastLogout.logout_time || '--'}`);
+      const rawLogout = (lastLogout.logout_time || '--').replace(/\s*-\s*$/, '').trim();
+      this.setText('drawer-ssh-last-logout-info', rawLogout);
     } else {
       this.setText('drawer-ssh-last-logout-info', 'None recorded');
     }

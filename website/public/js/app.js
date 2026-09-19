@@ -906,10 +906,25 @@ class PiCloudApp {
   openDrawer(hostname) {
     this.selectedHostname = hostname;
     const node = this.nodes[hostname];
-    if (!node) return;
+    
+    // Provide a graceful fallback node object if this.nodes[hostname] is not yet populated
+    let nodeToUse = node;
+    if (!nodeToUse) {
+      const idMatch = hostname ? hostname.match(/\d+/) : null;
+      const nodeId = idMatch ? parseInt(idMatch[0], 10) : '--';
+      nodeToUse = {
+        hostname: hostname || 'picloud',
+        node_id: nodeId,
+        ip: nodeId !== '--' ? `10.129.111.${nodeId}` : '10.129.111.--',
+        status: 'offline',
+        ssh: {},
+      };
+    }
 
     // Load and mirror current settings from the node's MQTT telemetry
-    this.loadNodeFanSettings(node);
+    if (node) {
+      this.loadNodeFanSettings(node);
+    }
 
     // Ensure recent history collapsible is closed by default
     const historyDetails = document.getElementById('drawer-ssh-history-details');
@@ -917,8 +932,8 @@ class PiCloudApp {
       historyDetails.removeAttribute('open');
     }
 
-    this.updateDrawerContent(node);
-    this.updateDrawerInteractiveState(node);
+    this.updateDrawerContent(nodeToUse);
+    this.updateDrawerInteractiveState(nodeToUse);
     document.getElementById('node-drawer')?.classList.remove('translate-x-full');
 
     // Also focus camera in 3D
@@ -1128,10 +1143,10 @@ class PiCloudApp {
       setText('drawer-ssh-last-login-info', '--');
     }
 
-    // Last Logout / Session Closed Event (ignore local tty consoles)
-    const lastLogout = (ssh.last_logout && (isSshSession(ssh.last_logout) || ssh.last_logout.logout_time))
+    // Last Logout / Session Closed Event (ignore local tty consoles and active sessions)
+    const lastLogout = (ssh.last_logout && (isSshSession(ssh.last_logout) || ssh.last_logout.logout_time) && ssh.last_logout.logout_time !== 'Active')
       ? ssh.last_logout
-      : (recent.find((s) => !s.is_active) || null);
+      : (recent.find((s) => !s.is_active && s.logout_time && s.logout_time !== 'Active') || null);
 
     if (lastLogout) {
       const formattedDur = this.parseAndFormatDuration(lastLogout.duration);

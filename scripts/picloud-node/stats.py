@@ -554,147 +554,176 @@ def get_ssh_info():
             if sess["user"] not in active_user_names:
                 active_user_names.append(sess["user"])
 
-    # 2. Historical logins and logout events from 'last'
+    # 2. Historical logins and logout events
     recent_sessions = []
     last_login = None
     last_logout = None
 
     try:
         raw_text = ""
-        # Try full timestamp format first (-F), fallback to standard last
+        # 1. On modern Debian 13 (Trixie+), wtmpdb replaces utmp/wtmp
         try:
-            res = subprocess.run(["last", "-F", "-n", "20"], capture_output=True, text=True, timeout=2)
-            if res.returncode == 0 and res.stdout:
+            res = subprocess.run(["wtmpdb", "last", "-n", "20"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout and res.stdout.strip():
                 raw_text = res.stdout
         except Exception:
             pass
 
+        # 2. If wtmpdb not available or produced nothing, parse journalctl for ssh
         if not raw_text:
+            try:
+                j_res = subprocess.run(["journalctl", "-u", "ssh", "-n", "50", "--no-pager"], capture_output=True, text=True, timeout=2)
+                if j_res.returncode == 0 and j_res.stdout and "Accepted" in j_res.stdout:
+                    fallback_term = active_sessions[0]["terminal"] if active_sessions else "pts/0"
+                    for line in reversed(j_res.stdout.splitlines()):
+                        m = re.search(r"^([A-Z][a-z]{2}\s+\d+\s+[\d:]+).*Accepted (?:password|publickey) for (\S+) from (\S+)", line)
+                        if m:
+                            t_str, u, h = m.groups()
+                            is_active = any(s["user"] == u for s in active_sessions)
+                            recent_sessions.append({
+                                "user": u,
+                                "terminal": fallback_term,
+                                "host": h,
+                                "login_time": t_str.rstrip(" -").strip(),
+                                "logout_time": "Active" if is_active else "Closed",
+                                "duration": "Active" if is_active else "N/A",
+                                "is_active": is_active,
+                            })
+                            if not last_login:
+                                last_login = {
+                                    "user": u,
+                                    "host": h,
+                                    "terminal": fallback_term,
+                                    "time": t_str.rstrip(" -").strip(),
+                                }
+                            if len(recent_sessions) >= 5:
+                                break
+            except Exception:
+                pass
+
+        # 3. If still nothing, fallback to classic 'last -F' or 'last'
+        if not raw_text and not recent_sessions:
+            try:
+                res = subprocess.run(["last", "-F", "-n", "20"], capture_output=True, text=True, timeout=2)
+                if res.returncode == 0 and res.stdout and res.stdout.strip():
+                    raw_text = res.stdout
+            except Exception:
+                pass
+
+        if not raw_text and not recent_sessions:
             try:
                 res = subprocess.run(["last", "-n", "20"], capture_output=True, text=True, timeout=2)
-                if res.returncode == 0 and res.stdout:
+                if res.returncode == 0 and res.stdout and res.stdout.strip():
                     raw_text = res.stdout
             except Exception:
                 pass
 
-        if not raw_text:
-            try:
-                res = subprocess.run(["wtmpdb", "last", "-n", "20"], capture_output=True, text=True, timeout=2)
-                if res.returncode == 0 and res.stdout:
-                    raw_text = res.stdout
-            except Exception:
-                pass
+        if raw_text:
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if not line or line.startswith(("reboot", "shutdown", "wtmp", "begins")):
+                    continue
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
 
-        for line in raw_text.splitlines():
-            line = line.strip()
-            if not line or line.startswith(("reboot", "shutdown", "wtmp", "begins")):
-                continue
-            parts = line.split()
-            if len(parts) < 4:
-                continue
+                user = parts[0]
+                tty = parts[1]
 
-            user = parts[0]
-            tty = parts[1]
+                # Only track SSH sessions (pts/*) - ignore console autologin (tty1, etc.) and non-terminal events
+                if not tty.startswith("pts"):
+                    continue
 
-            # Only track SSH sessions (pts/*) - ignore console autologin (tty1, etc.) and non-terminal events
-            if not tty.startswith("pts"):
-                continue
+                idx = 2
+                client_ip = ""
+                if not re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", parts[2]):
+                    client_ip = parts[2]
+                    idx = 3
 
-            idx = 2
-            client_ip = ""
-            if not re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", parts[2]):
-                client_ip = parts[2]
-                idx = 3
+                rest = " ".join(parts[idx:])
+                is_still_in = "still logged in" in line or "still running" in line
 
-            rest = " ".join(parts[idx:])
-            is_still_in = "still logged in" in line or "still running" in line
+                logout_time = None
+                duration = None
+                login_time = rest
 
-            logout_time = None
-            duration = None
-            login_time = rest
-
-            if is_still_in:
-                login_time = rest.replace("still logged in", "").replace("still running", "").rstrip(" -").strip()
-                logout_time = "Active"
-                duration = "Active"
-            elif " - " in rest:
-                time_parts = rest.split(" - ", 1)
-                login_time = time_parts[0].rstrip(" -").strip()
-                after_dash = time_parts[1].strip()
-                dur_match = re.search(r"\((.*?)\)", after_dash)
-                if dur_match:
-                    duration = parse_and_format_duration(dur_match.group(1))
-                    logout_time = re.sub(r"\(.*?\)", "", after_dash).strip()
+                if is_still_in:
+                    login_time = rest.replace("still logged in", "").replace("still running", "").rstrip(" -").strip()
+                    logout_time = "Active"
+                    duration = "Active"
+                elif " - " in rest:
+                    time_parts = rest.split(" - ", 1)
+                    login_time = time_parts[0].rstrip(" -").strip()
+                    after_dash = time_parts[1].strip()
+                    dur_match = re.search(r"\((.*?)\)", after_dash)
+                    if dur_match:
+                        duration = parse_and_format_duration(dur_match.group(1))
+                        logout_time = re.sub(r"\(.*?\)", "", after_dash).strip()
+                    else:
+                        logout_time = after_dash
                 else:
-                    logout_time = after_dash
-            else:
-                login_time = rest.rstrip(" -").strip()
+                    login_time = rest.rstrip(" -").strip()
 
-            sess = {
-                "user": user,
-                "terminal": tty,
-                "host": client_ip or "local",
-                "login_time": login_time,
-                "logout_time": logout_time or "N/A",
-                "duration": duration or "N/A",
-                "is_active": is_still_in,
-            }
-            if len(recent_sessions) < 5:
-                recent_sessions.append(sess)
-
-            if not last_login:
-                last_login = {
+                sess = {
                     "user": user,
-                    "host": client_ip or "local",
                     "terminal": tty,
-                    "time": login_time,
-                }
-
-            if not last_logout and not is_still_in and logout_time and logout_time != "N/A":
-                last_logout = {
-                    "user": user,
                     "host": client_ip or "local",
-                    "terminal": tty,
                     "login_time": login_time,
-                    "logout_time": logout_time,
+                    "logout_time": logout_time or "N/A",
                     "duration": duration or "N/A",
+                    "is_active": is_still_in,
                 }
+                if len(recent_sessions) < 5:
+                    recent_sessions.append(sess)
+
+                if not last_login:
+                    last_login = {
+                        "user": user,
+                        "host": client_ip or "local",
+                        "terminal": tty,
+                        "time": login_time,
+                    }
+
+                if not last_logout and not is_still_in and logout_time and logout_time != "N/A":
+                    last_logout = {
+                        "user": user,
+                        "host": client_ip or "local",
+                        "terminal": tty,
+                        "login_time": login_time,
+                        "logout_time": logout_time,
+                        "duration": duration or "N/A",
+                    }
     except Exception:
         pass
 
-    # 2b. Fallback to journalctl for SSH login history if 'last' returned nothing (Debian 13)
-    if not recent_sessions:
-        fallback_term = active_sessions[0]["terminal"] if active_sessions else "pts/0"
-        try:
-            j_res = subprocess.run(["journalctl", "-u", "ssh", "-n", "50", "--no-pager"], capture_output=True, text=True, timeout=2)
-            if j_res.returncode == 0:
-                for line in reversed(j_res.stdout.splitlines()):
-                    m = re.search(r"^([A-Z][a-z]{2}\s+\d+\s+[\d:]+).*Accepted (?:password|publickey) for (\S+) from (\S+)", line)
-                    if m:
-                        t_str, u, h = m.groups()
-                        is_active = any(s["user"] == u for s in active_sessions)
-                        recent_sessions.append({
-                            "user": u,
-                            "terminal": fallback_term,
-                            "host": h,
-                            "login_time": t_str.rstrip(" -").strip(),
-                            "logout_time": "Active" if is_active else "Closed",
-                            "duration": "Active" if is_active else "N/A",
-                            "is_active": is_active,
-                        })
-                        if not last_login:
-                            last_login = {
-                                "user": u,
-                                "host": h,
-                                "terminal": fallback_term,
-                                "time": t_str.rstrip(" -").strip(),
-                            }
-                        if len(recent_sessions) >= 5:
-                            break
-        except Exception:
-            pass
+    # 4. Integrate live active sessions:
+    # Ensure all active sessions are at the top of recent_sessions, and set last_login
+    if active_sessions:
+        for act in reversed(active_sessions):
+            act_entry = {
+                "user": act["user"],
+                "terminal": act["terminal"],
+                "host": act["host"],
+                "login_time": act["login_time"],
+                "logout_time": "Active",
+                "duration": act.get("duration", "Active"),
+                "is_active": True,
+            }
+            # Remove any existing entry for this terminal from recent_sessions
+            recent_sessions = [s for s in recent_sessions if s.get("terminal") != act["terminal"]]
+            recent_sessions.insert(0, act_entry)
+        recent_sessions = recent_sessions[:5]
 
-    # Fallback to systemd-logind for last_logout if still not found
+        # Primary active session sets last_login
+        primary_act = active_sessions[0]
+        last_login = {
+            "user": primary_act["user"],
+            "host": primary_act["host"],
+            "terminal": primary_act["terminal"],
+            "time": primary_act["login_time"],
+        }
+
+    # 5. Last logout fallback from journalctl (systemd-logind or ssh) if not populated
     if not last_logout:
         try:
             l_res = subprocess.run(["journalctl", "-u", "systemd-logind", "-n", "30", "--no-pager"], capture_output=True, text=True, timeout=2)
@@ -709,6 +738,27 @@ def get_ssh_info():
                             "terminal": last_login["terminal"] if last_login else (active_sessions[0]["terminal"] if active_sessions else "pts/0"),
                             "login_time": last_login["time"] if last_login else "N/A",
                             "logout_time": logout_ts,
+                            "duration": "<1 min",
+                        }
+                        break
+        except Exception:
+            pass
+
+    # If still not found, check journalctl -u ssh for Disconnected events
+    if not last_logout:
+        try:
+            s_res = subprocess.run(["journalctl", "-u", "ssh", "-n", "40", "--no-pager"], capture_output=True, text=True, timeout=2)
+            if s_res.returncode == 0:
+                for line in reversed(s_res.stdout.splitlines()):
+                    m_disc = re.search(r"^([A-Z][a-z]{2}\s+\d+\s+[\d:]+).*Disconnected from (?:user )?(\S+)\s+(\S+)", line)
+                    if m_disc:
+                        ts, u, h = m_disc.groups()
+                        last_logout = {
+                            "user": u,
+                            "host": h,
+                            "terminal": "pts/0",
+                            "login_time": last_login["time"] if last_login else "N/A",
+                            "logout_time": ts.rstrip(" -").strip(),
                             "duration": "<1 min",
                         }
                         break
