@@ -18,8 +18,11 @@
 
     - name: Reboot the server (if required).
       ansible.builtin.reboot:
-        when: reboot_required_file.stat.exists
+        msg: "Reboot initiated by Ansible after package upgrades"
+        reboot_timeout: 300
+      when: reboot_required_file.stat.exists
 
-    - name: Remove dependencies that are no longer required.
+    - name: Remove dependencies that are no longer required and clean cache.
       ansible.builtin.apt:
         autoremove: true
+        autoclean: true
