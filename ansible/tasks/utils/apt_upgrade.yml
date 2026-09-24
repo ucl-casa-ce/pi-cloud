@@ -1,0 +1,31 @@
+---
+- name: Playbook for updating and upgrading apt packages on PiCloud nodes
+  hosts: picloud
+  serial: 10
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Update apt package list cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 0
+
+    - name: Upgrade all installed packages to latest version
+      ansible.builtin.apt:
+        upgrade: dist
+        autoremove: true
+        autoclean: true
+
+    - name: Check if a reboot is required after upgrades
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+        get_checksum: false
+      register: reboot_required_file
+
+    - name: Reboot the Pi (if required by kernel/system updates)
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible after package upgrades"
+        reboot_timeout: 300
+      when: reboot_required_file.stat.exists
+

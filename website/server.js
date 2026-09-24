@@ -1,20 +1,44 @@
-require('dotenv').config();
-const http = require('http');
+const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
+
+// Explicitly load .env file from the website directory (or cwd as fallback)
+const envPath = path.resolve(__dirname, '.env');
+const cwdEnvPath = path.resolve(process.cwd(), '.env');
+
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  console.log(`[CONFIG] Loaded environment configuration from: ${envPath}`);
+} else if (fs.existsSync(cwdEnvPath)) {
+  dotenv.config({ path: cwdEnvPath });
+  console.log(`[CONFIG] Loaded environment configuration from: ${cwdEnvPath}`);
+} else {
+  dotenv.config();
+  console.warn('[CONFIG] Warning: No .env file found at website/.env or current working directory');
+}
+
+const http = require('http');
 const express = require('express');
 const session = require('express-session');
 const WebSocket = require('ws');
 const mqtt = require('mqtt');
 const { Issuer, generators } = require('openid-client');
 
-const PORT = parseInt(process.env.PORT, 10) || 3000;
+const PORT = parseInt(process.env.PORT, 10) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-const MQTT_HOST = process.env.MQTT_HOST || 'localhost';
+const MQTT_HOST = process.env.MQTT_HOST;
 const MQTT_PORT = parseInt(process.env.MQTT_PORT, 10) || 1883;
 const MQTT_USER = process.env.MQTT_USER || '';
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || '';
-const MQTT_TOPIC_PREFIX = process.env.MQTT_TOPIC_PREFIX || 'student/PiCloud';
+const MQTT_TOPIC_PREFIX = (process.env.MQTT_TOPIC_PREFIX || '').trim().replace(/['"]/g, '').replace(/\/+$/, '');
+
+if (!MQTT_HOST) {
+  console.warn('[CONFIG WARNING] MQTT_HOST is not set in .env');
+}
+if (!MQTT_TOPIC_PREFIX) {
+  console.warn('[CONFIG WARNING] MQTT_TOPIC_PREFIX is not set in .env');
+}
 
 const AUTH_DEV_MODE = process.env.AUTH_DEV_MODE !== 'false';
 const TOTAL_NODES = 48;
@@ -942,6 +966,10 @@ wss.on('connection', (ws) => {
 let mqttClient = null;
 
 function connectMqtt() {
+  if (!MQTT_HOST || !MQTT_TOPIC_PREFIX) {
+    console.warn('[MQTT] MQTT connection skipped: MQTT_HOST and MQTT_TOPIC_PREFIX must be configured in .env');
+    return;
+  }
   const brokerUrl = `mqtt://${MQTT_HOST}:${MQTT_PORT}`;
   console.log(`[MQTT] Connecting to broker at ${brokerUrl}...`);
 
@@ -972,9 +1000,14 @@ function connectMqtt() {
 
   mqttClient.on('message', (topic, messageBuffer) => {
     try {
-      const topicParts = topic.split('/');
-      const hostname = topicParts[2];
-      const messageType = topicParts[3];
+      if (MQTT_TOPIC_PREFIX && !topic.startsWith(MQTT_TOPIC_PREFIX)) return;
+      const subTopic = MQTT_TOPIC_PREFIX
+        ? topic.slice(MQTT_TOPIC_PREFIX.length).replace(/^\/+/, '')
+        : topic;
+      const parts = subTopic.split('/');
+      const hostname = parts[0];
+      const messageType = parts[1];
+      const action = parts[2];
 
       if (!hostname || !nodes[hostname]) return;
 
@@ -1128,7 +1161,7 @@ function connectMqtt() {
           data: node,
           summary: computeClusterSummary()
         });
-      } else if (messageType === 'cmd' && topicParts[4] === 'response') {
+      } else if (messageType === 'cmd' && action === 'response') {
         if (payload && payload.action === 'fan' && payload.fan && nodes[hostname]) {
           if (!nodes[hostname].power_and_hardware) nodes[hostname].power_and_hardware = {};
           nodes[hostname].power_and_hardware.fan = payload.fan;
