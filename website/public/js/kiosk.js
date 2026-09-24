@@ -129,10 +129,35 @@ class PiCloudKiosk {
         } else if (msg.type === 'NODE_UPDATE') {
           if (msg.hostname && msg.data) {
             this.nodes[msg.hostname] = msg.data;
-            if (this.wallTwin) this.wallTwin.updateNodes(this.nodes);
+            if (this.wallTwin) {
+              this.wallTwin.updateNodes({ [msg.hostname]: { ...msg.data, _justUpdated: true } });
+              this.wallTwin.triggerMqttPulse(msg.hostname);
+            }
             if (this.currentNode === msg.hostname) {
               this.updateDrawerContent(msg.data);
             }
+          }
+        } else if (msg.type === 'BATCH_UPDATE') {
+          if (msg.updates) {
+            const wallPatch = {};
+            msg.updates.forEach((item) => {
+              this.nodes[item.hostname] = item.data;
+              wallPatch[item.hostname] = { ...item.data, _justUpdated: true };
+              if (this.wallTwin) {
+                this.wallTwin.triggerMqttPulse(item.hostname);
+              }
+              if (this.currentNode === item.hostname) {
+                this.updateDrawerContent(item.data);
+              }
+            });
+            if (this.wallTwin) {
+              this.wallTwin.updateNodes(wallPatch);
+            }
+          }
+        } else if (msg.type === 'IDENTIFY_TRIGGER') {
+          if (this.wallTwin) {
+            const dur = parseInt(msg.duration, 10) || 10;
+            this.wallTwin.triggerIdentify(msg.hostname, dur);
           }
         }
       } catch (err) {

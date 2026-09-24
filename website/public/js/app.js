@@ -165,6 +165,7 @@ class PiCloudApp {
         }
         if (this.wallTwin) {
           this.wallTwin.updateNodes({ [msg.hostname]: { ...msg.data, _justUpdated: true } });
+          this.wallTwin.triggerMqttPulse(msg.hostname);
         }
         this.update2DCard(msg.hostname, msg.data);
         if (this.selectedHostname === msg.hostname) {
@@ -188,6 +189,9 @@ class PiCloudApp {
           if (this.twin3d) {
             this.twin3d.updateNodeData(item.hostname, item.data);
             this.twin3d.triggerMqttPulse(item.hostname);
+          }
+          if (this.wallTwin) {
+            this.wallTwin.triggerMqttPulse(item.hostname);
           }
           this.update2DCard(item.hostname, item.data);
           if (this.selectedHostname === item.hostname) {
