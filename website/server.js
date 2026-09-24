@@ -12,9 +12,12 @@ if (fs.existsSync(envPath)) {
 } else if (fs.existsSync(cwdEnvPath)) {
   dotenv.config({ path: cwdEnvPath });
   console.log(`[CONFIG] Loaded environment configuration from: ${cwdEnvPath}`);
+} else if (process.env.MQTT_HOST || process.env.NODE_ENV || process.env.PORT) {
+  // In Docker containers, Kubernetes, or cloud PaaS platforms, environment variables are injected directly
+  console.log('[CONFIG] Loaded environment variables from container/system environment');
 } else {
   dotenv.config();
-  console.warn('[CONFIG] Warning: No .env file found at website/.env or current working directory');
+  console.warn('[CONFIG] Warning: No .env file found and no environment variables detected');
 }
 
 const http = require('http');
@@ -34,10 +37,10 @@ const MQTT_PASSWORD = process.env.MQTT_PASSWORD || '';
 const MQTT_TOPIC_PREFIX = (process.env.MQTT_TOPIC_PREFIX || '').trim().replace(/['"]/g, '').replace(/\/+$/, '');
 
 if (!MQTT_HOST) {
-  console.warn('[CONFIG WARNING] MQTT_HOST is not set in .env');
+  console.warn('[CONFIG WARNING] MQTT_HOST is not set in environment or .env');
 }
 if (!MQTT_TOPIC_PREFIX) {
-  console.warn('[CONFIG WARNING] MQTT_TOPIC_PREFIX is not set in .env');
+  console.warn('[CONFIG WARNING] MQTT_TOPIC_PREFIX is not set in environment or .env');
 }
 
 const AUTH_DEV_MODE = process.env.AUTH_DEV_MODE !== 'false';
@@ -382,8 +385,100 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+// Trust reverse-proxy headers (e.g. Traefik, Caddy, Nginx in Coolify/Docker)
+if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
+
+/**
+ * Production-ready session store with TTL pruning and bounded memory capacity.
+ * Replaces default express-session MemoryStore to eliminate memory leak warnings in production.
+ */
+class ClusterSessionStore extends session.Store {
+  constructor(options = {}) {
+    super();
+    this.sessions = new Map();
+    this.maxSessions = options.maxSessions || 10000;
+    this.pruneIntervalMs = options.pruneIntervalMs || 15 * 60 * 1000; // 15 mins
+    this.pruneTimer = setInterval(() => this.pruneExpired(), this.pruneIntervalMs);
+    if (this.pruneTimer.unref) this.pruneTimer.unref();
+  }
+
+  pruneExpired() {
+    const now = Date.now();
+    for (const [sid, sess] of this.sessions.entries()) {
+      if (sess && sess.cookie && sess.cookie.expires) {
+        if (new Date(sess.cookie.expires).getTime() <= now) {
+          this.sessions.delete(sid);
+        }
+      }
+    }
+  }
+
+  get(sid, fn) {
+    const sess = this.sessions.get(sid);
+    if (!sess) return fn(null, null);
+    if (sess.cookie && sess.cookie.expires && new Date(sess.cookie.expires).getTime() <= Date.now()) {
+      this.sessions.delete(sid);
+      return fn(null, null);
+    }
+    try {
+      return fn(null, JSON.parse(JSON.stringify(sess)));
+    } catch (err) {
+      return fn(err);
+    }
+  }
+
+  set(sid, sess, fn) {
+    try {
+      if (this.sessions.size >= this.maxSessions) {
+        this.pruneExpired();
+        if (this.sessions.size >= this.maxSessions) {
+          const firstKey = this.sessions.keys().next().value;
+          if (firstKey) this.sessions.delete(firstKey);
+        }
+      }
+      this.sessions.set(sid, JSON.parse(JSON.stringify(sess)));
+      if (fn) fn(null);
+    } catch (err) {
+      if (fn) fn(err);
+    }
+  }
+
+  destroy(sid, fn) {
+    this.sessions.delete(sid);
+    if (fn) fn(null);
+  }
+
+  touch(sid, sess, fn) {
+    const cur = this.sessions.get(sid);
+    if (cur && sess && sess.cookie) {
+      cur.cookie = sess.cookie;
+    }
+    if (fn) fn(null);
+  }
+
+  all(fn) {
+    const result = {};
+    for (const [sid, sess] of this.sessions.entries()) {
+      result[sid] = sess;
+    }
+    if (fn) fn(null, result);
+  }
+
+  length(fn) {
+    if (fn) fn(null, this.sessions.size);
+  }
+
+  clear(fn) {
+    this.sessions.clear();
+    if (fn) fn(null);
+  }
+}
+
 app.use(
   session({
+    store: new ClusterSessionStore(),
     secret: process.env.SESSION_SECRET || 'picloud-default-session-secret-change-in-env',
     resave: false,
     saveUninitialized: false,
