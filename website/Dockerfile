@@ -1,5 +1,5 @@
 # Production Dockerfile for PiCloud Digital Twin Dashboard
-FROM node:20-alpine
+FROM node:lts-alpine
 
 # Install curl for container health check
 RUN apk add --no-cache curl
